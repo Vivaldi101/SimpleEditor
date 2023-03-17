@@ -7,6 +7,8 @@
 
 #include <assert.h>
 #include <stdint.h>
+#include <stdlib.h>
+#include <stdio.h>
 #include <Windows.h>
 #include <d2d1.h>
 #include <dwrite.h>
@@ -23,8 +25,8 @@
 #define ZeroStruct(x) memset((x), 0, sizeof(*(x)));
 #define ArrayCount(a) sizeof((a)) / sizeof((*a))
 
-#define PreCondition(a) if(!(a)) __debugbreak();
-#define PostCondition(a) if(!(a)) __debugbreak();
+#define Pre(a) if(!(a)) __debugbreak();
+#define Post(a) if(!(a)) __debugbreak();
 #define Invariant(a) if(!(a)) __debugbreak();
 #define Implies(a, b) Invariant(!(a) || (b))
 
@@ -65,94 +67,99 @@ struct gap_buffer
 	cursor_position Cursor;
 };
 
+// Post and precondition for gap size staying same.
+
+#define GapSize(Buffer) ((Buffer)->GapEnd - (Buffer)->GapBegin)
+#define IsGapFull(Buffer) GapSize((Buffer)) == 0
+#define BufferSize(Buffer) (Buffer)->End - GapSize(Buffer)
+#define IsCursorInGap(Buffer) ((Buffer)->GapBegin <= (Buffer)->Cursor && (Buffer)->Cursor <= (Buffer)->GapEnd)
+
 function void
 GapBufferInvariants(gap_buffer *Buffer)
 {
 	Invariant(Buffer->Cursor >= 0);
 	Invariant(Buffer->GapBegin >= 0);
 
-	Invariant(Buffer->Cursor <= Buffer->End);
 	Invariant(Buffer->GapBegin <= Buffer->GapEnd);
+
 	Invariant(Buffer->GapEnd <= Buffer->End);
+	Invariant(Buffer->Cursor <= Buffer->End);
 }
 
-#define GapSize(Buffer) ((Buffer)->GapEnd - (Buffer)->GapBegin)
-#define IsGapFull(Buffer) GapSize((Buffer)) == 0
+function bool
+IsAscii(char C)
+{
+	return isascii(C);
+}
 
 function void
 MoveBytes(byte *Destination, byte *Source, u64 Size)
 {
-	memmove(Destination, Source, Size);
+	MoveMemory(Destination, Source, Size);
 }
 
 function void
 SetBytes(byte *Destination, int Value, u64 Size)
 {
-	memset(Destination, Value, Size);
+	FillMemory(Destination, Size, Value);
 }
 
 function void
 CopyBytes(byte *Destination, byte *Source, u64 Size)
 {
-	// TODO: Overlap conditions.
-	memcpy(Destination, Source, Size);
+	CopyMemory(Destination, Source, Size);
 }
 
 function void 
 Initialize(gap_buffer *Buffer, size_t Size)
 {
-	PreCondition(Buffer);
-	PreCondition(IsGapFull(Buffer));
-	PreCondition(Size != 1);
 	GapBufferInvariants(Buffer);
+	Pre(Buffer);
+	Pre(IsGapFull(Buffer));
+	Pre(Size != 1);
 
 	Buffer->GapBegin = Buffer->GapEnd = Buffer->End = 0;
 	Buffer->Memory = Cast(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, Size), byte*);
 	Buffer->End = Size - 1;
 	Buffer->GapBegin = 0;
+	Buffer->Cursor = 0;
 	Buffer->GapEnd = Buffer->End;
 
-	PostCondition(!IsGapFull(Buffer));
-	PostCondition(Buffer->Memory);
+	Post(!IsGapFull(Buffer));
+	Post(Buffer->Memory);
 	GapBufferInvariants(Buffer);
 }
-
-/*
-	wp(end = size - 1; begin = 0, end - begin != 0)
-	wp(end = size - 1, , end - 0 != 0)
-	= (size - 1 - 0 != 0)
-	= (size - 1 != 0)
-	= (size != 1)
-
-	wp(end = size - 1; begin = 0, end != begin)
-	wp(end = size - 1, end != 0)
-	= (size - 1 != 0)
-	= (size != 1)
-*/
-
 
 function void
 InsertCharacter(gap_buffer *Buffer, char Char)
 {
-	PreCondition(Buffer);
+	Pre(Buffer);
 	GapBufferInvariants(Buffer);
 
 	// Needs to expand the gap for the new reallocated buffer.
 	if(IsGapFull(Buffer))
 	{
-		buffer_position NewBufferSize = (Buffer->End + 1) * 2;
-		buffer_position NewGapSize = NewBufferSize / 2;
+		Pre(Buffer->GapBegin == Buffer->GapEnd);
+
+		const buffer_position NewBufferSize = (Buffer->End + 1) * 2;
+		const buffer_position NewGapSize = NewBufferSize / 2;
+		const buffer_position OldGapEnd = Buffer->GapEnd;
+		const buffer_position OldGapBegin = Buffer->GapBegin;
+		const buffer_position End = Buffer->End;
 
 		Buffer->Memory = Cast(HeapReAlloc(GetProcessHeap(), 0, Buffer->Memory, NewBufferSize), byte*);
-
-		Buffer->GapEnd = Buffer->GapBegin + NewGapSize - 1;
 		Buffer->End = NewBufferSize - 1;
+		Buffer->GapEnd += NewGapSize;
 
-		PostCondition(NewBufferSize == (NewGapSize * 2));
+		MoveBytes(Buffer->Memory + Buffer->GapEnd, Buffer->Memory + OldGapEnd, BufferSize(Buffer) - OldGapBegin);
+
+		Post(NewBufferSize == (NewGapSize * 2));
+		Post(Buffer->GapBegin != Buffer->GapEnd);
 	}
 
 	Buffer->Memory[Buffer->GapBegin] = Char;
 	Buffer->GapBegin++;
+
 	Buffer->Cursor++;
 
 	GapBufferInvariants(Buffer);
@@ -161,17 +168,95 @@ InsertCharacter(gap_buffer *Buffer, char Char)
 function void
 InsertNewline(gap_buffer *Buffer)
 {
+	Pre(Buffer);
 	GapBufferInvariants(Buffer);
-	Buffer->Memory[Buffer->GapBegin] = '\n';
+
+	InsertCharacter(Buffer, '\n');
+	Buffer->Cursor = 0;		// Reset the cursor to the beginning.
+
+	GapBufferInvariants(Buffer);
+}
+
+function void
+Backspace(gap_buffer *Buffer)
+{
+	Pre(Buffer);
+	GapBufferInvariants(Buffer);
+
+	// Cant backspace anymore.
+	if (Buffer->GapBegin == 0)
+	{
+		return;
+	}
+
+	const buffer_position OldCursor = Buffer->Cursor;
+
+	if (Buffer->Cursor != 0) // Remain on this line.
+	{
+		Buffer->Cursor--;
+
+		Post(Buffer->Cursor >= 0);
+		Post(Buffer->Cursor < OldCursor);
+	}
+	else if (Buffer->Cursor == 0) // Move up a line.
+	{
+		//Buffer->Cursor = Buffer->GapBegin - 1;
+
+		Post(Buffer->Cursor == OldCursor);	// Empty previous line.
+	}
+
+	Buffer->GapBegin--;
+
+	GapBufferInvariants(Buffer);
+}
+
+function void
+MoveForwards(gap_buffer *Buffer)
+{
+	Pre(Buffer);
+	GapBufferInvariants(Buffer);
+
+	const buffer_position OldGapSize = GapSize(Buffer);
+
+	if (Buffer->GapEnd == Buffer->End)
+	{
+		return;
+	}
+
+	MoveBytes(Buffer->Memory + Buffer->GapBegin, Buffer->Memory + Buffer->GapEnd + 1, 1);
 	Buffer->GapBegin++;
-	Buffer->Cursor = 0;
+	Buffer->GapEnd++;
+	Buffer->Cursor++;
+
+	Post(OldGapSize == GapSize(Buffer));
+
+	GapBufferInvariants(Buffer);
+}
+
+function void
+MoveBackwards(gap_buffer *Buffer)
+{
+	Pre(Buffer);
+	GapBufferInvariants(Buffer);
+	const buffer_position OldGapSize = GapSize(Buffer);
+
+	if (Buffer->GapBegin == 0 || Buffer->Cursor == 0)
+	{
+		return;
+	}
+
+	MoveBytes(Buffer->Memory + Buffer->GapEnd, Buffer->Memory + Buffer->GapBegin - 1, 1);
+	Buffer->GapBegin--;
+	Buffer->GapEnd--;
+	Buffer->Cursor--;
+
 	GapBufferInvariants(Buffer);
 }
 
 // Fix the size of the cursor to match font size.
 // Fix the line alignment.
 function void
-DrawCursor(gap_buffer *Buffer, buffer_position CursorLeft, buffer_position CursorTop)
+DrawCursor(buffer_position CursorLeft, buffer_position CursorTop)
 {
 	D2D1_RECT_F Cursor;
 	const f32 CursorWidth = 20.0f;
@@ -204,22 +289,47 @@ Draw(gap_buffer *Buffer, f32 Left, f32 Top, f32 Width, f32 Height)
 	GapBufferInvariants(Buffer);
 
 	buffer_position GapBegin = Buffer->GapBegin;
+	buffer_position GapEnd = Buffer->GapEnd;
+	buffer_position End = Buffer->End;
 	buffer_position Cursor = Buffer->Cursor;
 	buffer_position Line = 0;
+	buffer_position UtfIndex = 0;
 
 	// TODO: Handle multibyte unicode advancements and new lines.
 	// TODO: Optimize.
 	for (buffer_position i = 0; i < GapBegin; ++i)
 	{
-		CopyBytes(Utf8 + i, Buffer->Memory + i, 1);
-		MultiByteToWideChar(CP_UTF8, 0, (LPCSTR)Utf8 + i, 1, Utf16 + i, sizeof(Utf16));
+		if (!IsAscii(Buffer->Memory[i]))
+		{
+			continue;
+		}
+		CopyBytes(Utf8 + UtfIndex, Buffer->Memory + i, 1);
+		MultiByteToWideChar(CP_UTF8, 0, (LPCSTR)Utf8 + UtfIndex, 1, Utf16 + UtfIndex, sizeof(Utf16));
+		UtfIndex++;
+		//Cursor++;
 		if (Utf8[i] == '\n')
 		{
 			Line++;
 		}
 	}
 
-	DrawCursor(Buffer, Cursor, Line);
+	for (buffer_position i = GapEnd + 1; i <= End; ++i)
+	{
+		if (!IsAscii(Buffer->Memory[i]))
+		{
+			continue;
+		}
+		CopyBytes(Utf8 + UtfIndex, Buffer->Memory + i, 1);
+		MultiByteToWideChar(CP_UTF8, 0, (LPCSTR)Utf8 + UtfIndex, 1, Utf16 + UtfIndex, sizeof(Utf16));
+		UtfIndex++;
+		//Cursor++;
+		if (Utf8[i] == '\n')
+		{
+			Line++;
+		}
+	}
+
+	DrawCursor(Cursor, Line);
 
 	GlobalRenderTarget->DrawText(Utf16, (UINT)wcslen(Utf16), GlobalTextFormat, Layout, GlobalTextBrush);
 	GapBufferInvariants(Buffer);
@@ -268,12 +378,11 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 				{
 					if (VkCode == 0x0d)
 					{
-						//Backspace(GlobalZedBuffer);
 						InsertNewline(GapBuffer);
 					}
 					else if (VkCode == VK_BACK)
 					{
-						//Backspace(GlobalZedBuffer);
+						Backspace(GapBuffer);
 					}
 					else if (VkCode == 'x')
 					{
@@ -281,11 +390,11 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 					}
 					else if (VkCode == 'J')
 					{
-						//MoveBackwards(GlobalZedBuffer);
+						MoveBackwards(GapBuffer);
 					}
 					else if (VkCode == 'K')
 					{
-						//MoveForwards(GlobalZedBuffer);
+						MoveForwards(GapBuffer);
 					}
 					else
 					{
@@ -328,7 +437,7 @@ int WINAPI
 WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
 {
 	gap_buffer GapBuffer = {};
-	Initialize(&GapBuffer, 256);
+	Initialize(&GapBuffer, 4);
 
 	// Stupid dwrite COM shit.
 	{
@@ -339,7 +448,6 @@ WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
 	}
 
 	WNDCLASS WindowClass = {};
-	//WindowClass.cbWndExtra = sizeof(GapBuffer);
 	WindowClass.hInstance = Instance;
 	WindowClass.lpfnWndProc = SysWindowProc;
 	WindowClass.lpszClassName = L"zed";
@@ -368,7 +476,7 @@ WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
 			TranslateMessage(&Message);
 			DispatchMessage(&Message);
 		}
-		// TODO: Cap to 60FPS.
+		// TODO: Lock to 60FPS.
 		GlobalRenderTarget->BeginDraw();
 		GlobalRenderTarget->Clear(D2D1::ColorF(D2D1::ColorF::White));
 		Draw(&GapBuffer, 0, 0, 800, 600);
