@@ -159,11 +159,12 @@ InsertCharacter(gap_buffer *Buffer, char Char)
 
 	Buffer->Memory[Buffer->GapBegin] = Char;
 	Buffer->GapBegin++;
-
 	Buffer->Cursor++;
 
 	GapBufferInvariants(Buffer);
 }
+
+// Fix.
 
 function void
 InsertNewline(gap_buffer *Buffer)
@@ -178,45 +179,10 @@ InsertNewline(gap_buffer *Buffer)
 }
 
 function void
-Backspace(gap_buffer *Buffer)
-{
-	Pre(Buffer);
-	GapBufferInvariants(Buffer);
-
-	// Cant backspace anymore.
-	if (Buffer->GapBegin == 0)
-	{
-		return;
-	}
-
-	const buffer_position OldCursor = Buffer->Cursor;
-
-	if (Buffer->Cursor != 0) // Remain on this line.
-	{
-		Buffer->Cursor--;
-
-		Post(Buffer->Cursor >= 0);
-		Post(Buffer->Cursor < OldCursor);
-	}
-	else if (Buffer->Cursor == 0) // Move up a line.
-	{
-		//Buffer->Cursor = Buffer->GapBegin - 1;
-
-		Post(Buffer->Cursor == OldCursor);	// Empty previous line.
-	}
-
-	Buffer->GapBegin--;
-
-	GapBufferInvariants(Buffer);
-}
-
-function void
 MoveForwards(gap_buffer *Buffer)
 {
 	Pre(Buffer);
 	GapBufferInvariants(Buffer);
-
-	const buffer_position OldGapSize = GapSize(Buffer);
 
 	if (Buffer->GapEnd == Buffer->End)
 	{
@@ -228,8 +194,6 @@ MoveForwards(gap_buffer *Buffer)
 	Buffer->GapEnd++;
 	Buffer->Cursor++;
 
-	Post(OldGapSize == GapSize(Buffer));
-
 	GapBufferInvariants(Buffer);
 }
 
@@ -238,16 +202,66 @@ MoveBackwards(gap_buffer *Buffer)
 {
 	Pre(Buffer);
 	GapBufferInvariants(Buffer);
-	const buffer_position OldGapSize = GapSize(Buffer);
 
-	if (Buffer->GapBegin == 0 || Buffer->Cursor == 0)
+	if (Buffer->GapBegin == 0)
 	{
 		return;
 	}
 
 	MoveBytes(Buffer->Memory + Buffer->GapEnd, Buffer->Memory + Buffer->GapBegin - 1, 1);
-	Buffer->GapBegin--;
 	Buffer->GapEnd--;
+	Buffer->Cursor--;
+	Buffer->GapBegin--;
+
+	if (Buffer->Cursor == -1)
+	{
+		buffer_position p = Buffer->GapBegin;
+
+		while(p >= 0 && Buffer->Memory[p] != '\n')
+		{
+			p--;
+		}
+		if (p >= 0)
+		{
+			p--;
+			while(p >= 0 && Buffer->Memory[p] != '\n')
+			{
+				p--;
+			}
+		}
+
+		Post(p < 0 || Buffer->Memory[p] == '\n');
+
+		if (p < 0)
+		{
+			// On the top line.
+			Post(p < 0);
+			Buffer->Cursor = Buffer->GapBegin;
+		}
+		else
+		{
+			Post(Buffer->Memory[p] == '\n');
+			Buffer->Cursor = Buffer->GapBegin - p - 1;
+		}
+	}
+
+	GapBufferInvariants(Buffer);
+}
+
+// Fix similarly to moving backwards.
+function void
+Backspace(gap_buffer *Buffer)
+{
+	Pre(Buffer);
+	GapBufferInvariants(Buffer);
+
+	// Cant backspace anymore.
+	if (Buffer->GapBegin == 0)
+	{
+		return;
+	}
+
+	Buffer->GapBegin--;
 	Buffer->Cursor--;
 
 	GapBufferInvariants(Buffer);
@@ -329,9 +343,9 @@ Draw(gap_buffer *Buffer, f32 Left, f32 Top, f32 Width, f32 Height)
 		}
 	}
 
+	GlobalRenderTarget->DrawText(Utf16, (UINT)wcslen(Utf16), GlobalTextFormat, Layout, GlobalTextBrush);
 	DrawCursor(Cursor, Line);
 
-	GlobalRenderTarget->DrawText(Utf16, (UINT)wcslen(Utf16), GlobalTextFormat, Layout, GlobalTextBrush);
 	GapBufferInvariants(Buffer);
 }
 
