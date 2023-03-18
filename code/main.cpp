@@ -25,10 +25,21 @@
 #define ZeroStruct(x) memset((x), 0, sizeof(*(x)));
 #define ArrayCount(a) sizeof((a)) / sizeof((*a))
 
+#ifdef _DEBUG
+
 #define Pre(a) if(!(a)) __debugbreak();
 #define Post(a) if(!(a)) __debugbreak();
 #define Invariant(a) if(!(a)) __debugbreak();
 #define Implies(a, b) Invariant(!(a) || (b))
+
+#else
+
+#define Pre(a)
+#define Post(a)
+#define Invariant(a)
+#define Implies(a, b)
+
+#endif
 
 typedef unsigned char byte;
 
@@ -72,18 +83,18 @@ struct gap_buffer
 #define GapSize(Buffer) ((Buffer)->GapEnd - (Buffer)->GapBegin)
 #define IsGapFull(Buffer) GapSize((Buffer)) == 0
 #define BufferSize(Buffer) (Buffer)->End - GapSize(Buffer)
-#define IsCursorInGap(Buffer) ((Buffer)->GapBegin <= (Buffer)->Cursor && (Buffer)->Cursor <= (Buffer)->GapEnd)
+#define IsCursorInGapExcl(Buffer) ((Buffer)->GapBegin < (Buffer)->Cursor && (Buffer)->Cursor < (Buffer)->GapEnd)
 
 function void
 GapBufferInvariants(gap_buffer *Buffer)
 {
 	Invariant(Buffer->Cursor >= 0);
-	Invariant(Buffer->GapBegin >= 0);
-
-	Invariant(Buffer->GapBegin <= Buffer->GapEnd);
-
-	Invariant(Buffer->GapEnd <= Buffer->End);
 	Invariant(Buffer->Cursor <= Buffer->End);
+	Invariant(!IsCursorInGapExcl(Buffer));
+
+	Invariant(Buffer->GapBegin >= 0);
+	Invariant(Buffer->GapBegin <= Buffer->GapEnd);
+	Invariant(Buffer->GapEnd <= Buffer->End);
 }
 
 function bool
