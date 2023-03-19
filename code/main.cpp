@@ -345,14 +345,12 @@ Draw(gap_buffer *Buffer, f32 Left, f32 Top, f32 Width, f32 Height)
 	// TODO: Optimize.
 
 	Invariant(UtfIndex <= ArrayCount(Utf8) && UtfIndex <= ArrayCount(Utf16));
-	for (buffer_position i = 0; i < GapBegin && UtfIndex < UtfBufferSize; ++i)
+	for (buffer_position i = 0; i < GapBegin && UtfIndex != UtfBufferSize; ++i)
 	{
 		if (!IsAscii(Buffer->Memory[i]))
 		{
 			continue;
 		}
-
-		Invariant(UtfIndex < ArrayCount(Utf8) && UtfIndex < ArrayCount(Utf16));
 
 		CopyBytes(Utf8 + UtfIndex, Buffer->Memory + i, 1);
 		MultiByteToWideChar(CP_UTF8, 0, (LPCSTR)Utf8 + UtfIndex, 1, Utf16 + UtfIndex, sizeof(Utf16));
@@ -361,9 +359,10 @@ Draw(gap_buffer *Buffer, f32 Left, f32 Top, f32 Width, f32 Height)
 		{
 			Line++;
 		}
+		Invariant(UtfIndex <= ArrayCount(Utf8) && UtfIndex <= ArrayCount(Utf16));
 	}
 
-	for (buffer_position i = GapEnd + 1; i <= End && UtfIndex < UtfBufferSize; ++i)
+	for (buffer_position i = GapEnd + 1; i <= End && UtfIndex != UtfBufferSize; ++i)
 	{
 		if (!IsAscii(Buffer->Memory[i]))
 		{
@@ -377,9 +376,12 @@ Draw(gap_buffer *Buffer, f32 Left, f32 Top, f32 Width, f32 Height)
 		{
 			Line++;
 		}
+		Invariant(UtfIndex <= ArrayCount(Utf8) && UtfIndex <= ArrayCount(Utf16));
 	}
 
 	Invariant(UtfIndex <= ArrayCount(Utf8) && UtfIndex <= ArrayCount(Utf16));
+
+	Utf16[ArrayCount(Utf16) - 1] = 0;
 
 	GlobalRenderTarget->DrawText(Utf16, (UINT)wcslen(Utf16), GlobalTextFormat, Layout, GlobalTextBrush);
 	DrawCursor(Cursor, Line);
