@@ -122,6 +122,16 @@ CopyBytes(byte *Destination, byte *Source, u64 Size)
 }
 
 function void 
+DeInitialize(gap_buffer* Buffer)
+{
+	GapBufferInvariants(Buffer);
+	Pre(Buffer);
+
+	// Test return values.
+	HeapFree(GetProcessHeap(), HEAP_ZERO_MEMORY, Buffer->Memory);
+}
+
+function void 
 Initialize(gap_buffer *Buffer, size_t Size)
 {
 	GapBufferInvariants(Buffer);
@@ -141,7 +151,7 @@ Initialize(gap_buffer *Buffer, size_t Size)
 	GapBufferInvariants(Buffer);
 }
 
-function void
+function bool
 InsertCharacter(gap_buffer *Buffer, char Char)
 {
 	Pre(Buffer);
@@ -156,16 +166,26 @@ InsertCharacter(gap_buffer *Buffer, char Char)
 		const buffer_position NewGapSize = NewBufferSize / 2;
 		const buffer_position OldGapEnd = Buffer->GapEnd;
 		const buffer_position OldGapBegin = Buffer->GapBegin;
-		const buffer_position End = Buffer->End;
 
-		Buffer->Memory = Cast(HeapReAlloc(GetProcessHeap(), 0, Buffer->Memory, NewBufferSize), byte*);
+		const void* RealloctedMemory = Cast(HeapReAlloc(GetProcessHeap(), 0, Buffer->Memory, NewBufferSize), byte*);
+
+		if (!RealloctedMemory)
+		{
+			DeInitialize(Buffer);
+
+			return false;
+		}
+
+		Buffer->Memory = (byte*)RealloctedMemory;
+
 		Buffer->End = NewBufferSize - 1;
-		Buffer->GapEnd += NewGapSize;
+		Buffer->GapEnd = Buffer->End;
 
 		MoveBytes(Buffer->Memory + Buffer->GapEnd, Buffer->Memory + OldGapEnd, BufferSize(Buffer) - OldGapBegin);
 
 		Post(NewBufferSize == (NewGapSize * 2));
 		Post(Buffer->GapBegin != Buffer->GapEnd);
+		Post(Buffer->GapEnd == Buffer->End);
 	}
 
 	Buffer->Memory[Buffer->GapBegin] = Char;
@@ -173,9 +193,9 @@ InsertCharacter(gap_buffer *Buffer, char Char)
 	Buffer->Cursor++;
 
 	GapBufferInvariants(Buffer);
-}
 
-// Fix.
+	return true;
+}
 
 function void
 InsertNewline(gap_buffer *Buffer)
@@ -301,11 +321,12 @@ DrawCursor(buffer_position CursorLeft, buffer_position CursorTop)
 function void
 Draw(gap_buffer *Buffer, f32 Left, f32 Top, f32 Width, f32 Height)
 {
-	byte Utf8[256];
+	const size_t UtfBufferSize = 256;
+	byte Utf8[UtfBufferSize];
 	ZeroMemory(Utf8, sizeof(Utf8));
-	WCHAR Utf16[256];
+	WCHAR Utf16[UtfBufferSize];
 	ZeroMemory(Utf16, sizeof(Utf16));
-	D2D1_RECT_F Layout;
+	D2D1_RECT_F Layout = {};
 	Layout.left = Left;
 	Layout.top = Top;
 	Layout.right = Layout.left + Width;
@@ -322,37 +343,43 @@ Draw(gap_buffer *Buffer, f32 Left, f32 Top, f32 Width, f32 Height)
 
 	// TODO: Handle multibyte unicode advancements and new lines.
 	// TODO: Optimize.
-	for (buffer_position i = 0; i < GapBegin; ++i)
+
+	Invariant(UtfIndex <= ArrayCount(Utf8) && UtfIndex <= ArrayCount(Utf16));
+	for (buffer_position i = 0; i < GapBegin && UtfIndex < UtfBufferSize; ++i)
 	{
 		if (!IsAscii(Buffer->Memory[i]))
 		{
 			continue;
 		}
+
+		Invariant(UtfIndex < ArrayCount(Utf8) && UtfIndex < ArrayCount(Utf16));
+
 		CopyBytes(Utf8 + UtfIndex, Buffer->Memory + i, 1);
 		MultiByteToWideChar(CP_UTF8, 0, (LPCSTR)Utf8 + UtfIndex, 1, Utf16 + UtfIndex, sizeof(Utf16));
 		UtfIndex++;
-		//Cursor++;
 		if (Utf8[i] == '\n')
 		{
 			Line++;
 		}
 	}
 
-	for (buffer_position i = GapEnd + 1; i <= End; ++i)
+	for (buffer_position i = GapEnd + 1; i <= End && UtfIndex < UtfBufferSize; ++i)
 	{
 		if (!IsAscii(Buffer->Memory[i]))
 		{
 			continue;
 		}
+
 		CopyBytes(Utf8 + UtfIndex, Buffer->Memory + i, 1);
 		MultiByteToWideChar(CP_UTF8, 0, (LPCSTR)Utf8 + UtfIndex, 1, Utf16 + UtfIndex, sizeof(Utf16));
 		UtfIndex++;
-		//Cursor++;
 		if (Utf8[i] == '\n')
 		{
 			Line++;
 		}
 	}
+
+	Invariant(UtfIndex <= ArrayCount(Utf8) && UtfIndex <= ArrayCount(Utf16));
 
 	GlobalRenderTarget->DrawText(Utf16, (UINT)wcslen(Utf16), GlobalTextFormat, Layout, GlobalTextBrush);
 	DrawCursor(Cursor, Line);
@@ -396,8 +423,8 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 		case WM_CHAR:
 			{
 				u32 VkCode = (u32)WParam;
-				b32 WasDown = (LParam & (1 << 30)) != 0;
-				b32 IsDown = (LParam & (1 << 31)) == 0;
+				b32 WasDown = (LParam & (1ll << 30)) != 0;
+				b32 IsDown = (LParam & (1ll << 31)) == 0;
 
 				//if (WasDown != IsDown)
 				{
@@ -428,6 +455,11 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 							int BufferSize = WideCharToMultiByte(CP_UTF8, 0, (WCHAR*)&WParam, 1, 0, 0, 0, 0);
 
 							char* Buffer = (char*)_malloca(BufferSize);
+
+							if (!Buffer)
+							{
+								break;
+							}
 
 							int Result = WideCharToMultiByte(CP_UTF8, 0, (WCHAR*)&WParam, 1, Buffer, BufferSize, 0, 0);
 
