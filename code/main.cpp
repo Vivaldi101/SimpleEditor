@@ -81,8 +81,8 @@ struct gap_buffer
 // Post and precondition for gap size staying same.
 
 #define GapSize(Buffer) ((Buffer)->GapEnd - (Buffer)->GapBegin)
-#define IsGapFull(Buffer) GapSize((Buffer)) == 0
-#define BufferSize(Buffer) (Buffer)->End - GapSize(Buffer)
+#define IsGapFull(Buffer) (GapSize((Buffer)) == 0)
+#define BufferSize(Buffer) ((Buffer)->End - GapSize(Buffer))
 #define IsCursorInGapExcl(Buffer) ((Buffer)->GapBegin < (Buffer)->Cursor && (Buffer)->Cursor < (Buffer)->GapEnd)
 
 function void
@@ -111,7 +111,7 @@ GapBufferInvariants(gap_buffer *Buffer)
 function bool
 IsAscii(char C)
 {
-	return isascii(C);
+	return isascii(C) && C != '\0';
 }
 
 function void
@@ -169,16 +169,24 @@ InsertCharacter(gap_buffer *Buffer, char Char)
 	GapBufferInvariants(Buffer);
 
 	// Needs to expand the gap for the new reallocated buffer.
-	if(IsGapFull(Buffer))
+
+	if(IsGapFull(Buffer))	// gap begin == gap end
 	{
 		Pre(Buffer->GapBegin == Buffer->GapEnd);
 
-		const buffer_position NewBufferSize = (Buffer->End + 1) * 2;
-		const buffer_position NewGapSize = NewBufferSize / 2;
+		const buffer_position OldEnd = Buffer->End;
 		const buffer_position OldGapEnd = Buffer->GapEnd;
 		const buffer_position OldGapBegin = Buffer->GapBegin;
+		const buffer_position OldBufferSize = BufferSize(Buffer);
 
-		const void* RealloctedMemory = Cast(HeapReAlloc(GetProcessHeap(), 0, Buffer->Memory, NewBufferSize), byte*);
+		// Double the size + size for byte shuffling.
+		//const buffer_position NewBufferSize = (Buffer->End + 1) * 2 + (OldEnd - OldGapEnd);
+		//const buffer_position NewBufferSize = BufferSize(Buffer) + (Buffer->End + 1) * 2;
+		// TODO: Calculate the exact new buffer size.
+		const buffer_position NewBufferSize = BufferSize(Buffer) * 10;
+		const buffer_position NewGapSize = NewBufferSize / 2;
+
+		const void* RealloctedMemory = Cast(HeapReAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, Buffer->Memory, NewBufferSize), byte*);
 
 		if (!RealloctedMemory)
 		{
@@ -190,13 +198,18 @@ InsertCharacter(gap_buffer *Buffer, char Char)
 		Buffer->Memory = (byte*)RealloctedMemory;
 
 		Buffer->End = NewBufferSize - 1;
-		Buffer->GapEnd = Buffer->End;
+		Buffer->GapEnd = Buffer->End - OldBufferSize;
 
-		MoveBytes(Buffer->Memory + Buffer->GapEnd, Buffer->Memory + OldGapEnd, BufferSize(Buffer) - OldGapBegin);
+		// TODO: Fix this.
+		MoveBytes(Buffer->Memory + Buffer->GapEnd + 1, Buffer->Memory + OldGapBegin + 1, OldEnd - OldGapEnd);
 
 		Post(NewBufferSize == (NewGapSize * 2));
+
+		// Gap is at the end of the new buffer.
 		Post(Buffer->GapBegin != Buffer->GapEnd);
-		Post(Buffer->GapEnd == Buffer->End);
+
+		// Make sure old buffer remnants fit after the gap.
+		Post(Buffer->GapEnd == Buffer->End - OldBufferSize);
 	}
 
 	Buffer->Memory[Buffer->GapBegin] = Char;
@@ -332,7 +345,7 @@ DrawCursor(buffer_position CursorLeft, buffer_position CursorTop)
 function void
 Draw(gap_buffer *Buffer, f32 Left, f32 Top, f32 Width, f32 Height)
 {
-	const size_t UtfBufferSize = 256;
+	const size_t UtfBufferSize = 512;
 	byte Utf8[UtfBufferSize];
 	ZeroMemory(Utf8, sizeof(Utf8));
 	WCHAR Utf16[UtfBufferSize];
@@ -395,7 +408,7 @@ Draw(gap_buffer *Buffer, f32 Left, f32 Top, f32 Width, f32 Height)
 	Pre(ArrayCount(Utf16) > 0);
 	Utf16[ArrayCount(Utf16) - 1] = 0;
 
-	DebugMessage("Drawing string: %s\n", (char*)Utf8);
+	DebugMessage("Drawing string: %s\n", (char*)Buffer->Memory);
 
 	GlobalRenderTarget->DrawText(Utf16, (UINT)wcslen(Utf16), GlobalTextFormat, Layout, GlobalTextBrush);
 	DrawCursor(Cursor, Line);
