@@ -109,7 +109,7 @@ GapBufferInvariants(gap_buffer *Buffer)
 }
 
 function bool
-IsAscii(char C)
+IsNonNullAscii(char C)
 {
 	return isascii(C) && C != '\0';
 }
@@ -163,12 +163,10 @@ Initialize(gap_buffer *Buffer, size_t Size)
 }
 
 function bool
-InsertCharacter(gap_buffer *Buffer, char Char)
+TryInsertCharacter(gap_buffer *Buffer, char Char)
 {
 	Pre(Buffer);
 	GapBufferInvariants(Buffer);
-
-	// Needs to expand the gap for the new reallocated buffer.
 
 	if(IsGapFull(Buffer))	// gap begin == gap end
 	{
@@ -179,9 +177,6 @@ InsertCharacter(gap_buffer *Buffer, char Char)
 		const buffer_position OldGapBegin = Buffer->GapBegin;
 		const buffer_position OldBufferSize = BufferSize(Buffer);
 
-		// Double the size + size for byte shuffling.
-		//const buffer_position NewBufferSize = (Buffer->End + 1) * 2 + (OldEnd - OldGapEnd);
-		//const buffer_position NewBufferSize = BufferSize(Buffer) + (Buffer->End + 1) * 2;
 		// TODO: Calculate the exact new buffer size.
 		const buffer_position NewBufferSize = BufferSize(Buffer) * 10;
 		const buffer_position NewGapSize = NewBufferSize / 2;
@@ -200,7 +195,7 @@ InsertCharacter(gap_buffer *Buffer, char Char)
 		Buffer->End = NewBufferSize - 1;
 		Buffer->GapEnd = Buffer->End - OldBufferSize;
 
-		// TODO: Fix this.
+		// Shuffle the characters after the previous gap after new gap end.
 		MoveBytes(Buffer->Memory + Buffer->GapEnd + 1, Buffer->Memory + OldGapBegin + 1, OldEnd - OldGapEnd);
 
 		Post(NewBufferSize == (NewGapSize * 2));
@@ -227,7 +222,7 @@ InsertNewline(gap_buffer *Buffer)
 	Pre(Buffer);
 	GapBufferInvariants(Buffer);
 
-	InsertCharacter(Buffer, '\n');
+	TryInsertCharacter(Buffer, '\n');
 	Buffer->Cursor = 0;		// Reset the cursor to the beginning.
 
 	GapBufferInvariants(Buffer);
@@ -371,7 +366,7 @@ Draw(gap_buffer *Buffer, f32 Left, f32 Top, f32 Width, f32 Height)
 	Invariant(UtfIndex <= ArrayCount(Utf8) && UtfIndex <= ArrayCount(Utf16));
 	for (buffer_position i = 0; i < GapBegin && UtfIndex != UtfBufferSize; ++i)
 	{
-		if (!IsAscii(Buffer->Memory[i]))
+		if (!IsNonNullAscii(Buffer->Memory[i]))
 		{
 			continue;
 		}
@@ -388,7 +383,7 @@ Draw(gap_buffer *Buffer, f32 Left, f32 Top, f32 Width, f32 Height)
 
 	for (buffer_position i = GapEnd + 1; i <= End && UtfIndex != UtfBufferSize; ++i)
 	{
-		if (!IsAscii(Buffer->Memory[i]))
+		if (!IsNonNullAscii(Buffer->Memory[i]))
 		{
 			continue;
 		}
@@ -451,12 +446,11 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 			} break;
 		case WM_CHAR:
 			{
-				u32 VkCode = (u32)WParam;
-				b32 WasDown = (LParam & (1ll << 30)) != 0;
-				b32 IsDown = (LParam & (1ll << 31)) == 0;
-
-				//if (WasDown != IsDown)
 				{
+					u32 VkCode = (u32)WParam;
+					b32 WasDown = (LParam & (1ll << 30)) != 0;
+					b32 IsDown = (LParam & (1ll << 31)) == 0;
+
 					if (VkCode == 0x0d)
 					{
 						InsertNewline(Buffer);
@@ -494,14 +488,15 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 
 							// Remove the <= 2 byte assumption.
 							// Multibyte chars.
+							// TODO: test the booleans.
 							if (Result == 2)
 							{
-								InsertCharacter(Buffer, MultiBytes[0]);
-								InsertCharacter(Buffer, MultiBytes[1]);
+								TryInsertCharacter(Buffer, MultiBytes[0]);
+								TryInsertCharacter(Buffer, MultiBytes[1]);
 							}
 							else if (Result == 1)
 							{
-								InsertCharacter(Buffer, MultiBytes[0]);
+								TryInsertCharacter(Buffer, MultiBytes[0]);
 							}
 						}
 					}
@@ -533,14 +528,16 @@ WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
 		GlobalTextFormat->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
 	}
 
-	WNDCLASS WindowClass = {};
-	WindowClass.hInstance = Instance;
-	WindowClass.lpfnWndProc = SysWindowProc;
-	WindowClass.lpszClassName = L"zed";
-	WindowClass.style = CS_OWNDC | CS_HREDRAW | CS_VREDRAW;
-	ATOM WindowClassAtom = RegisterClass(&WindowClass);
+	{
+		WNDCLASS WindowClass = {};
+		WindowClass.hInstance = Instance;
+		WindowClass.lpfnWndProc = SysWindowProc;
+		WindowClass.lpszClassName = L"zed";
+		WindowClass.style = CS_OWNDC | CS_HREDRAW | CS_VREDRAW;
+		ATOM WindowClassAtom = RegisterClass(&WindowClass);
 
-	Invariant(WindowClassAtom);
+		Invariant(WindowClassAtom);
+	}
 
 	// Adjust the client area related to the screen origin + client size.
 	RECT DesiredWindow = { 500, 300, 800, 600 };
