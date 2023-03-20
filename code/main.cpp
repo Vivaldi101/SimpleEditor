@@ -59,11 +59,11 @@ typedef float f32;
 static bool GlobalQuit;
 
 // Test globals.
-ID2D1Factory *GlobalD2D1Factory;
-IDWriteFactory *GlobalWriteFactory;
-ID2D1HwndRenderTarget *GlobalRenderTarget;
-IDWriteTextFormat *GlobalTextFormat;
-ID2D1SolidColorBrush* GlobalTextBrush;
+static ID2D1Factory *GlobalD2D1Factory;
+static IDWriteFactory *GlobalWriteFactory;
+static ID2D1HwndRenderTarget *GlobalRenderTarget;
+static IDWriteTextFormat *GlobalTextFormat;
+static ID2D1SolidColorBrush* GlobalTextBrush;
 
 
 typedef s64 buffer_position;
@@ -84,6 +84,17 @@ struct gap_buffer
 #define IsGapFull(Buffer) GapSize((Buffer)) == 0
 #define BufferSize(Buffer) (Buffer)->End - GapSize(Buffer)
 #define IsCursorInGapExcl(Buffer) ((Buffer)->GapBegin < (Buffer)->Cursor && (Buffer)->Cursor < (Buffer)->GapEnd)
+
+function void
+DebugMessage(const char* format, ...)
+{
+	char Temp[1024];
+	va_list Args;
+	va_start(Args, format);
+	wvsprintfA(Temp, format, Args);
+	va_end(Args);
+	OutputDebugStringA(Temp);
+}
 
 function void
 GapBufferInvariants(gap_buffer *Buffer)
@@ -381,7 +392,10 @@ Draw(gap_buffer *Buffer, f32 Left, f32 Top, f32 Width, f32 Height)
 
 	Invariant(UtfIndex <= ArrayCount(Utf8) && UtfIndex <= ArrayCount(Utf16));
 
+	Pre(ArrayCount(Utf16) > 0);
 	Utf16[ArrayCount(Utf16) - 1] = 0;
+
+	DebugMessage("Drawing string: %s\n", (char*)Utf8);
 
 	GlobalRenderTarget->DrawText(Utf16, (UINT)wcslen(Utf16), GlobalTextFormat, Layout, GlobalTextBrush);
 	DrawCursor(Cursor, Line);
@@ -394,9 +408,9 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 {
 	LRESULT Result = 0;
 
-	gap_buffer* GapBuffer = (gap_buffer*)(void*)GetWindowLongPtr(Window, GWLP_USERDATA);
+	gap_buffer* Buffer = (gap_buffer*)(void*)GetWindowLongPtr(Window, GWLP_USERDATA);
 
-	if (GapBuffer)
+	if (Buffer)
 	{
 		switch (Message)
 		{
@@ -432,11 +446,11 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 				{
 					if (VkCode == 0x0d)
 					{
-						InsertNewline(GapBuffer);
+						InsertNewline(Buffer);
 					}
 					else if (VkCode == VK_BACK)
 					{
-						Backspace(GapBuffer);
+						Backspace(Buffer);
 					}
 					else if (VkCode == 'x')
 					{
@@ -444,37 +458,37 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 					}
 					else if (VkCode == 'J')
 					{
-						MoveBackwards(GapBuffer);
+						MoveBackwards(Buffer);
 					}
 					else if (VkCode == 'K')
 					{
-						MoveForwards(GapBuffer);
+						MoveForwards(Buffer);
 					}
 					else
 					{
 						// Cleanup
 						{
-							int BufferSize = WideCharToMultiByte(CP_UTF8, 0, (WCHAR*)&WParam, 1, 0, 0, 0, 0);
+							const int BufferSize = WideCharToMultiByte(CP_UTF8, 0, (WCHAR*)&WParam, 1, 0, 0, 0, 0);
 
-							char* Buffer = (char*)_malloca(BufferSize);
+							char* MultiBytes = (char*)_malloca(BufferSize);
 
 							if (!Buffer)
 							{
 								break;
 							}
 
-							int Result = WideCharToMultiByte(CP_UTF8, 0, (WCHAR*)&WParam, 1, Buffer, BufferSize, 0, 0);
+							const int Result = WideCharToMultiByte(CP_UTF8, 0, (WCHAR*)&WParam, 1, MultiBytes, BufferSize, 0, 0);
 
 							// Remove the <= 2 byte assumption.
 							// Multibyte chars.
 							if (Result == 2)
 							{
-								InsertCharacter(GapBuffer, Buffer[0]);
-								InsertCharacter(GapBuffer, Buffer[1]);
+								InsertCharacter(Buffer, MultiBytes[0]);
+								InsertCharacter(Buffer, MultiBytes[1]);
 							}
 							else if (Result == 1)
 							{
-								InsertCharacter(GapBuffer, Buffer[0]);
+								InsertCharacter(Buffer, MultiBytes[0]);
 							}
 						}
 					}
