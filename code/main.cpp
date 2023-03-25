@@ -24,12 +24,13 @@
 #define Cast(x, t) (t)(x)
 #define ZeroStruct(x) memset((x), 0, sizeof(*(x)));
 #define ArrayCount(a) sizeof((a)) / sizeof((*a))
+#define Halt __debugbreak();
 
 #ifdef _DEBUG
 
-#define Pre(a) if(!(a)) __debugbreak();
-#define Post(a) if(!(a)) __debugbreak();
-#define Invariant(a) if(!(a)) __debugbreak();
+#define Pre(a) if(!(a)) Halt
+#define Post(a) if(!(a)) Halt
+#define Invariant(a) if(!(a)) Halt
 #define Implies(a, b) Invariant(!(a) || (b))
 
 #else
@@ -85,6 +86,10 @@ struct gap_buffer
 #define BufferSize(Buffer) ((Buffer)->End - GapSize(Buffer))
 #define IsCursorInGapExcl(Buffer) ((Buffer)->GapBegin < (Buffer)->Cursor && (Buffer)->Cursor < (Buffer)->GapEnd)
 
+//#define CursorPoint(Buffer) (((Buffer)->Cursor > (Buffer)->GapBegin + 1) ? (Buffer)->Cursor -= GapSize((Buffer)) : (Buffer)->Cursor)
+#define CursorPoint(Buffer) 
+
+#ifdef _DEBUG
 function void
 DebugMessage(const char* format, ...)
 {
@@ -95,13 +100,18 @@ DebugMessage(const char* format, ...)
 	va_end(Args);
 	OutputDebugStringA(Temp);
 }
+#else
+function void
+DebugMessage(const char* format, ...) {}
+#endif
 
 function void
 GapBufferInvariants(gap_buffer *Buffer)
 {
 	Invariant(Buffer->Cursor >= 0);
 	Invariant(Buffer->Cursor <= Buffer->End);
-	Invariant(!IsCursorInGapExcl(Buffer));
+
+	Invariant(0 <= Buffer->Cursor && Buffer->Cursor <= BufferSize(Buffer));
 
 	Invariant(Buffer->GapBegin >= 0);
 	Invariant(Buffer->GapBegin <= Buffer->GapEnd);
@@ -176,9 +186,9 @@ TryInsertCharacter(gap_buffer *Buffer, char Char)
 		const buffer_position OldGapEnd = Buffer->GapEnd;
 		const buffer_position OldGapBegin = Buffer->GapBegin;
 		const buffer_position OldBufferSize = BufferSize(Buffer);
+		const buffer_position BufferRemnants = OldEnd - OldGapEnd;
 
-		// TODO: Calculate the exact new buffer size.
-		const buffer_position NewBufferSize = BufferSize(Buffer) * 10;
+		const buffer_position NewBufferSize = BufferSize(Buffer) * 2 + OldGapEnd + BufferRemnants;
 		const buffer_position NewGapSize = NewBufferSize / 2;
 
 		const void* RealloctedMemory = Cast(HeapReAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, Buffer->Memory, NewBufferSize), byte*);
@@ -193,23 +203,28 @@ TryInsertCharacter(gap_buffer *Buffer, char Char)
 		Buffer->Memory = (byte*)RealloctedMemory;
 
 		Buffer->End = NewBufferSize - 1;
-		Buffer->GapEnd = Buffer->End - OldBufferSize;
+		Buffer->GapEnd = Buffer->End - BufferRemnants;
 
 		// Shuffle the characters after the previous gap after new gap end.
 		MoveBytes(Buffer->Memory + Buffer->GapEnd + 1, Buffer->Memory + OldGapBegin + 1, OldEnd - OldGapEnd);
 
-		Post(NewBufferSize == (NewGapSize * 2));
+		//Post(NewBufferSize == (NewGapSize * 2));
 
 		// Gap is at the end of the new buffer.
 		Post(Buffer->GapBegin != Buffer->GapEnd);
 
 		// Make sure old buffer remnants fit after the gap.
-		Post(Buffer->GapEnd == Buffer->End - OldBufferSize);
+		Post(Buffer->GapEnd == Buffer->End - BufferRemnants);
+
+		//Post(BufferSize(Buffer) == GapSize(Buffer) + OldGapBegin + BufferRemnants);
 	}
 
 	Buffer->Memory[Buffer->GapBegin] = Char;
-	Buffer->GapBegin++;
 	Buffer->Cursor++;
+
+	CursorPoint(Buffer);
+
+	Buffer->GapBegin++;
 
 	GapBufferInvariants(Buffer);
 
@@ -223,7 +238,6 @@ InsertNewline(gap_buffer *Buffer)
 	GapBufferInvariants(Buffer);
 
 	TryInsertCharacter(Buffer, '\n');
-	Buffer->Cursor = 0;		// Reset the cursor to the beginning.
 
 	GapBufferInvariants(Buffer);
 }
@@ -240,9 +254,13 @@ MoveForwards(gap_buffer *Buffer)
 	}
 
 	MoveBytes(Buffer->Memory + Buffer->GapBegin, Buffer->Memory + Buffer->GapEnd + 1, 1);
+	Buffer->Cursor++;
+
+	CursorPoint(Buffer);
+
 	Buffer->GapBegin++;
 	Buffer->GapEnd++;
-	Buffer->Cursor++;
+	//CursorPoint(Buffer);
 
 	GapBufferInvariants(Buffer);
 }
@@ -259,9 +277,17 @@ MoveBackwards(gap_buffer *Buffer)
 	}
 
 	MoveBytes(Buffer->Memory + Buffer->GapEnd, Buffer->Memory + Buffer->GapBegin - 1, 1);
-	Buffer->GapEnd--;
 	Buffer->Cursor--;
+
+	CursorPoint(Buffer);
+
+	Buffer->GapEnd--;
 	Buffer->GapBegin--;
+
+	GapBufferInvariants(Buffer);
+	
+	// TODO: remove
+	return;
 
 	if (Buffer->Cursor == -1)
 	{
@@ -311,8 +337,10 @@ Backspace(gap_buffer *Buffer)
 		return;
 	}
 
-	Buffer->GapBegin--;
 	Buffer->Cursor--;
+	CursorPoint(Buffer);
+
+	Buffer->GapBegin--;
 
 	GapBufferInvariants(Buffer);
 }
@@ -320,15 +348,14 @@ Backspace(gap_buffer *Buffer)
 // Fix the size of the cursor to match font size.
 // Fix the line alignment.
 function void
-DrawCursor(buffer_position CursorLeft, buffer_position CursorTop)
+DrawCursor(f32 CursorLeft, f32 CursorTop, f32 CursorRight, f32 CursorBottom)
 {
 	D2D1_RECT_F Cursor;
-	const f32 CursorWidth = 20.0f;
-	const f32 CursorHeight = 40.0f;
-	Cursor.left = CursorLeft*CursorWidth;
-	Cursor.top = CursorTop*CursorHeight;
-	Cursor.right = Cursor.left + CursorWidth;
-	Cursor.bottom = Cursor.top + CursorHeight;
+
+	Cursor.left = CursorLeft;
+	Cursor.top = CursorTop;
+	Cursor.right = CursorRight;
+	Cursor.bottom = CursorBottom;
 
 	D2D1_COLOR_F OldColor = GlobalTextBrush->GetColor();
 	D2D1_COLOR_F CursorColor = {1.0f, 0.0f, 0.0f, 1.0f};
@@ -345,6 +372,7 @@ Draw(gap_buffer *Buffer, f32 Left, f32 Top, f32 Width, f32 Height)
 	ZeroMemory(Utf8, sizeof(Utf8));
 	WCHAR Utf16[UtfBufferSize];
 	ZeroMemory(Utf16, sizeof(Utf16));
+
 	D2D1_RECT_F Layout = {};
 	Layout.left = Left;
 	Layout.top = Top;
@@ -356,9 +384,12 @@ Draw(gap_buffer *Buffer, f32 Left, f32 Top, f32 Width, f32 Height)
 	buffer_position GapBegin = Buffer->GapBegin;
 	buffer_position GapEnd = Buffer->GapEnd;
 	buffer_position End = Buffer->End;
-	buffer_position Cursor = Buffer->Cursor;
-	buffer_position Line = 0;
+	buffer_position Lines = 0;
 	buffer_position UtfIndex = 0;
+
+	if (GapBegin > 4)
+	{
+	}
 
 	// TODO: Handle multibyte unicode advancements and new lines.
 	// TODO: Optimize.
@@ -376,7 +407,7 @@ Draw(gap_buffer *Buffer, f32 Left, f32 Top, f32 Width, f32 Height)
 		UtfIndex++;
 		if (Utf8[i] == '\n')
 		{
-			Line++;
+			Lines++;
 		}
 		Invariant(UtfIndex <= ArrayCount(Utf8) && UtfIndex <= ArrayCount(Utf16));
 	}
@@ -393,7 +424,7 @@ Draw(gap_buffer *Buffer, f32 Left, f32 Top, f32 Width, f32 Height)
 		UtfIndex++;
 		if (Utf8[i] == '\n')
 		{
-			Line++;
+			Lines++;
 		}
 		Invariant(UtfIndex <= ArrayCount(Utf8) && UtfIndex <= ArrayCount(Utf16));
 	}
@@ -403,10 +434,34 @@ Draw(gap_buffer *Buffer, f32 Left, f32 Top, f32 Width, f32 Height)
 	Pre(ArrayCount(Utf16) > 0);
 	Utf16[ArrayCount(Utf16) - 1] = 0;
 
-	DebugMessage("Drawing string: %s\n", (char*)Buffer->Memory);
+	GlobalRenderTarget->PushAxisAlignedClip(&Layout, D2D1_ANTIALIAS_MODE_ALIASED);
 
-	GlobalRenderTarget->DrawText(Utf16, (UINT)wcslen(Utf16), GlobalTextFormat, Layout, GlobalTextBrush);
-	DrawCursor(Cursor, Line);
+	IDWriteTextLayout* TextLayout;
+	GlobalWriteFactory->CreateTextLayout(Utf16, (UINT)wcslen(Utf16), GlobalTextFormat, Layout.right - Layout.left, Layout.bottom - Layout.top, &TextLayout);
+
+	Pre(TextLayout);
+	GlobalRenderTarget->DrawTextLayout(D2D1::Point2F(Layout.left, Layout.top), TextLayout, GlobalTextBrush);
+
+	DWRITE_LINE_METRICS LineMetrics;
+	UINT32 LineCount;
+	TextLayout->GetLineMetrics(&LineMetrics, Lines, &LineCount);
+
+	f32 CursorX, CursorY;
+	DWRITE_HIT_TEST_METRICS CursorMetrics;
+	TextLayout->HitTestTextPosition(Buffer->Cursor, FALSE, &CursorX, &CursorY, &CursorMetrics);
+
+	f32 CursorLeft = CursorX + Layout.left;
+	f32 CursorTop = CursorY + Layout.top;
+	f32 CursorRight = CursorLeft + CursorMetrics.width;
+	f32 CursorBottom = CursorTop + CursorMetrics.height;
+
+	DrawCursor(CursorLeft, CursorTop, CursorRight, CursorBottom);
+
+	DebugMessage("Cursor position: \t%d\n", Buffer->Cursor);
+	//DebugMessage("Buffer gap begin: \t%d\n", Buffer->GapBegin);
+	//DebugMessage("Buffer gap: \t\t%d\n", GapSize(Buffer));
+
+	GlobalRenderTarget->PopAxisAlignedClip();
 
 	GapBufferInvariants(Buffer);
 }
