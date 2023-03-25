@@ -285,43 +285,6 @@ MoveBackwards(gap_buffer *Buffer)
 	Buffer->GapBegin--;
 
 	GapBufferInvariants(Buffer);
-	
-	// TODO: remove
-	return;
-
-	if (Buffer->Cursor == -1)
-	{
-		buffer_position p = Buffer->GapBegin;
-
-		while(p >= 0 && Buffer->Memory[p] != '\n')
-		{
-			p--;
-		}
-		if (p >= 0)
-		{
-			p--;
-			while(p >= 0 && Buffer->Memory[p] != '\n')
-			{
-				p--;
-			}
-		}
-
-		Post(p < 0 || Buffer->Memory[p] == '\n');
-
-		if (p < 0)
-		{
-			// On the top line.
-			Post(p < 0);
-			Buffer->Cursor = Buffer->GapBegin;
-		}
-		else
-		{
-			Post(Buffer->Memory[p] == '\n');
-			Buffer->Cursor = Buffer->GapBegin - p - 1;
-		}
-	}
-
-	GapBufferInvariants(Buffer);
 }
 
 // Fix similarly to moving backwards.
@@ -617,7 +580,7 @@ WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
 		// TODO: Lock to 60FPS.
 		GlobalRenderTarget->BeginDraw();
 		GlobalRenderTarget->Clear(D2D1::ColorF(D2D1::ColorF::White));
-		Draw(&GapBuffer, 0, 0, 800, 600);
+		Draw(&GapBuffer, 0, 0, 1920, 1080);
 		//DrawCursor(GlobalZedBuffer);
 		GlobalRenderTarget->EndDraw();
 	}
