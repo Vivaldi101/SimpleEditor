@@ -66,9 +66,8 @@ static ID2D1HwndRenderTarget *GlobalRenderTarget;
 static IDWriteTextFormat *GlobalTextFormat;
 static ID2D1SolidColorBrush* GlobalTextBrush;
 
-
-typedef s64 buffer_position;
-typedef s64 cursor_position;
+typedef u64 buffer_position;
+typedef u64 cursor_position;
 
 struct gap_buffer
 {
