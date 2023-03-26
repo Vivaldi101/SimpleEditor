@@ -71,11 +71,13 @@ typedef u64 cursor_position;
 
 struct gap_buffer
 {
-	byte *Memory;
 	buffer_position GapBegin;
 	buffer_position GapEnd;
 	buffer_position End;	
 	cursor_position Cursor;
+	byte *Memory;
+
+	byte Reserved[24];	// Align to 64 byte cache line.
 };
 
 // Post and precondition for gap size staying same.
