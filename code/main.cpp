@@ -350,10 +350,6 @@ Draw(gap_buffer *Buffer, f32 Left, f32 Top, f32 Width, f32 Height)
 	buffer_position Lines = 0;
 	buffer_position UtfIndex = 0;
 
-	if (GapBegin > 4)
-	{
-	}
-
 	// TODO: Handle multibyte unicode advancements and new lines.
 	// TODO: Optimize.
 
@@ -407,11 +403,11 @@ Draw(gap_buffer *Buffer, f32 Left, f32 Top, f32 Width, f32 Height)
 
 	DWRITE_LINE_METRICS LineMetrics;
 	UINT32 LineCount;
-	TextLayout->GetLineMetrics(&LineMetrics, Lines, &LineCount);
+	TextLayout->GetLineMetrics(&LineMetrics, (u32)Lines, &LineCount);
 
 	f32 CursorX, CursorY;
 	DWRITE_HIT_TEST_METRICS CursorMetrics;
-	TextLayout->HitTestTextPosition(Buffer->Cursor, FALSE, &CursorX, &CursorY, &CursorMetrics);
+	TextLayout->HitTestTextPosition((u32)Buffer->Cursor, FALSE, &CursorX, &CursorY, &CursorMetrics);
 
 	f32 CursorLeft = CursorX + Layout.left;
 	f32 CursorTop = CursorY + Layout.top;
