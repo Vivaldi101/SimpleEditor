@@ -421,7 +421,7 @@ Draw(gap_buffer *Buffer, f32 Left, f32 Top, f32 Width, f32 Height)
 	DrawCursor(CursorLeft, CursorTop, CursorRight, CursorBottom);
 
 	DebugMessage("Cursor position: \t%d\n", Buffer->Cursor);
-	//DebugMessage("Buffer gap begin: \t%d\n", Buffer->GapBegin);
+	DebugMessage("Buffer size: \t\t%d\n", BufferSize(Buffer));
 	//DebugMessage("Buffer gap: \t\t%d\n", GapSize(Buffer));
 
 	GlobalRenderTarget->PopAxisAlignedClip();
@@ -536,7 +536,7 @@ int WINAPI
 WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
 {
 	gap_buffer GapBuffer = {};
-	Initialize(&GapBuffer, 4);
+	Initialize(&GapBuffer, 4096);
 
 	// Stupid dwrite COM shit.
 	{
