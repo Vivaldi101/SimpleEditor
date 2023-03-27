@@ -405,6 +405,10 @@ Draw(gap_buffer *Buffer, f32 Left, f32 Top, f32 Width, f32 Height)
 	DWRITE_HIT_TEST_METRICS CursorMetrics;
 	TextLayout->HitTestTextPosition((u32)Buffer->Cursor, FALSE, &CursorX, &CursorY, &CursorMetrics);
 
+	Pre(TextLayout);
+
+	TextLayout->Release();
+
 	f32 CursorLeft = CursorX + Layout.left;
 	f32 CursorTop = CursorY + Layout.top;
 	f32 CursorRight = CursorLeft + CursorMetrics.width;
@@ -528,7 +532,7 @@ int WINAPI
 WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
 {
 	gap_buffer GapBuffer = {};
-	Initialize(&GapBuffer, 4096);
+	Initialize(&GapBuffer, 256);
 
 	// Stupid dwrite COM shit.
 	{
@@ -576,6 +580,8 @@ WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
 		//DrawCursor(GlobalZedBuffer);
 		GlobalRenderTarget->EndDraw();
 	}
+
+	DeInitialize(&GapBuffer);
 
 	return 0;
 }
