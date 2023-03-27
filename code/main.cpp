@@ -1,8 +1,6 @@
 
 /////////////////////////
-// TODO: Hone and refine the gap buffer invariants!!!!!!!
 // TODO: Remove the globals.
-// TODO: One megastruct.
 /////////////////////////
 
 #include <assert.h>
@@ -109,12 +107,9 @@ DebugMessage(const char* format, ...) {}
 function void
 GapBufferInvariants(gap_buffer *Buffer)
 {
-	Invariant(Buffer->Cursor >= 0);
 	Invariant(Buffer->Cursor <= Buffer->End);
+	Invariant(Buffer->Cursor <= BufferSize(Buffer));
 
-	Invariant(0 <= Buffer->Cursor && Buffer->Cursor <= BufferSize(Buffer));
-
-	Invariant(Buffer->GapBegin >= 0);
 	Invariant(Buffer->GapBegin <= Buffer->GapEnd);
 	Invariant(Buffer->GapEnd <= Buffer->End);
 }
