@@ -73,9 +73,10 @@ struct gap_buffer
 	buffer_position GapEnd;
 	buffer_position End;	
 	cursor_position Cursor;
+	//cursor_position Column;	// Might not need this.
 	byte *Memory;
 
-	byte Reserved[24];	// Align to 64 byte cache line.
+	//byte Reserved[24];	// Align to 64 byte cache line.
 };
 
 // Post and precondition for gap size staying same.
@@ -112,6 +113,8 @@ GapBufferInvariants(gap_buffer *Buffer)
 
 	Invariant(Buffer->GapBegin <= Buffer->GapEnd);
 	Invariant(Buffer->GapEnd <= Buffer->End);
+
+	//Invariant(Buffer->Column <= Buffer->Cursor);
 }
 
 function void
@@ -155,6 +158,7 @@ Initialize(gap_buffer *Buffer, size_t Size)
 	Buffer->End = Size - 1;
 	Buffer->GapBegin = 0;
 	Buffer->Cursor = 0;
+	//Buffer->Column = 0;
 	Buffer->GapEnd = Buffer->End;
 
 	Post(!IsGapFull(Buffer));
@@ -210,7 +214,7 @@ TryInsertCharacter(gap_buffer *Buffer, char Char)
 
 	Buffer->Memory[Buffer->GapBegin] = Char;
 	Buffer->Cursor++;
-
+	//Buffer->Column++;
 
 	Buffer->GapBegin++;
 
@@ -244,10 +248,8 @@ MoveForwards(gap_buffer *Buffer)
 	MoveBytes(Buffer->Memory + Buffer->GapBegin, Buffer->Memory + Buffer->GapEnd + 1, 1);
 	Buffer->Cursor++;
 
-
 	Buffer->GapBegin++;
 	Buffer->GapEnd++;
-	//CursorPoint(Buffer);
 
 	GapBufferInvariants(Buffer);
 }
@@ -266,9 +268,66 @@ MoveBackwards(gap_buffer *Buffer)
 	MoveBytes(Buffer->Memory + Buffer->GapEnd, Buffer->Memory + Buffer->GapBegin - 1, 1);
 	Buffer->Cursor--;
 
-
 	Buffer->GapEnd--;
 	Buffer->GapBegin--;
+
+	GapBufferInvariants(Buffer);
+}
+
+function void
+MoveUp(gap_buffer *Buffer)
+{
+	Pre(Buffer);
+	GapBufferInvariants(Buffer);
+
+	buffer_position GapBegin = Buffer->GapBegin - 1;
+	buffer_position GapShift = 0;
+
+	while (GapBegin != 0 && Buffer->Memory[GapBegin] != '\n')
+	{
+		--GapBegin;
+		++GapShift;
+	}
+
+	if (Buffer->Memory[GapBegin] == '\n')
+	{
+		while(GapShift-- > 0)
+		{
+			MoveBackwards(Buffer);
+		}
+		MoveBackwards(Buffer);
+	}
+
+	Post(GapBegin == 0 || Buffer->Memory[GapBegin] == '\n');
+
+	GapBufferInvariants(Buffer);
+}
+
+function void
+MoveDown(gap_buffer *Buffer)
+{
+	Pre(Buffer);
+	GapBufferInvariants(Buffer);
+
+	buffer_position GapEnd = Buffer->GapEnd + 1;
+	buffer_position GapShift = 0;
+
+	while (GapEnd != Buffer->End && Buffer->Memory[GapEnd] != '\n')
+	{
+		++GapEnd;
+		++GapShift;
+	}
+
+	if (Buffer->Memory[GapEnd] == '\n')
+	{
+		while(GapShift-- > 0)
+		{
+			MoveForwards(Buffer);
+		}
+		MoveForwards(Buffer);
+	}
+
+	Post(GapEnd == Buffer->End || Buffer->Memory[GapEnd] == '\n');
 
 	GapBufferInvariants(Buffer);
 }
@@ -287,6 +346,7 @@ Backspace(gap_buffer *Buffer)
 	}
 
 	Buffer->Cursor--;
+	//Buffer->Column--;
 
 	Buffer->GapBegin--;
 
@@ -334,16 +394,16 @@ Draw(gap_buffer *Buffer, f32 Left, f32 Top, f32 Width, f32 Height)
 
 	// TODO: Handle multibyte unicode advancements.
 
-	for (buffer_position i = 0, UtfIndex = 0; i <= End && UtfIndex != UtfBufferSize; ++i)
+	for (buffer_position BufIndex = 0, UtfIndex = 0; BufIndex <= End && UtfIndex != UtfBufferSize; ++BufIndex)
 	{
 		GapBufferInvariants(Buffer);
 
-		if (i >= GapBegin && i <= GapEnd)
+		if (BufIndex >= GapBegin && BufIndex <= GapEnd)
 		{
 			continue;
 		}
 
-		CopyBytes(Utf8 + UtfIndex, Buffer->Memory + i, 1);
+		CopyBytes(Utf8 + UtfIndex, Buffer->Memory + BufIndex, 1);
 		MultiByteToWideChar(CP_UTF8, 0, (LPCSTR)Utf8 + UtfIndex, 1, Utf16 + UtfIndex, sizeof(Utf16));
 		UtfIndex++;
 		Invariant(UtfIndex <= ArrayCount(Utf8) && UtfIndex <= ArrayCount(Utf16));
@@ -377,8 +437,8 @@ Draw(gap_buffer *Buffer, f32 Left, f32 Top, f32 Width, f32 Height)
 	const D2D1_COLOR_F CursorColor = {1.0f, 0.0f, 0.0f, 1.0f};
 	DrawCursor(CursorLeft, CursorTop, CursorRight, CursorBottom, CursorColor);
 
-	DebugMessage("Cursor position: \t%d\n", Buffer->Cursor);
-	DebugMessage("Buffer size: \t\t%d\n", BufferSize(Buffer));
+	DebugMessage("Column cursor: \t%d\n", Buffer->Cursor);
+	//DebugMessage("Buffer size: \t\t%d\n", BufferSize(Buffer));
 	//DebugMessage("Buffer gap: \t\t%d\n", GapSize(Buffer));
 
 	GlobalRenderTarget->PopAxisAlignedClip();
@@ -438,14 +498,6 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 					{
 						//Delete(GlobalZedBuffer);
 					}
-					else if (VkCode == 'J')
-					{
-						MoveBackwards(Buffer);
-					}
-					else if (VkCode == 'K')
-					{
-						MoveForwards(Buffer);
-					}
 					else
 					{
 						// Cleanup
@@ -475,6 +527,24 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 							}
 						}
 					}
+				}
+			} break;
+		case WM_KEYDOWN:
+			{
+				switch(WParam)
+				{
+				case VK_LEFT:	
+					MoveBackwards(Buffer); 
+					break;
+				case VK_RIGHT:	
+					MoveForwards(Buffer); 
+					break; 
+				case VK_UP:	
+					MoveUp(Buffer); 
+					break; 
+				case VK_DOWN:	
+					MoveDown(Buffer); 
+					break; 
 				}
 			} break;
 		default:
