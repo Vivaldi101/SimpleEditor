@@ -15,6 +15,21 @@
 #pragma comment(lib, "dwrite.lib")
 #pragma comment(lib, "d2d1.lib")
 
+typedef unsigned char byte;
+
+typedef int8_t s8;
+typedef int16_t s16;
+typedef int32_t s32;
+typedef int64_t s64;
+
+typedef uint8_t u8;
+typedef uint16_t u16;
+typedef uint32_t u32;
+typedef uint64_t u64;
+
+typedef u32 b32;
+typedef float f32;
+
 #define global static
 #define local static
 #define function static
@@ -31,6 +46,9 @@
 #define Invariant(a) if(!(a)) Halt
 #define Implies(a, b) Invariant(!(a) || (b))
 
+#define EQ(a, n, p) [&]() -> bool {for(u32 i__ = 0; i__ < (n); ++i__) { if ((a)[i__] p) { return true; } } return false; }()
+#define UQ(a, n, p) [&]() -> bool {for(u32 i__ = 0; i__ < (n); ++i__) { if (!((a)[i__] p)) { return false; } } return true; }()
+
 #else
 
 #define Pre(a)
@@ -38,22 +56,10 @@
 #define Invariant(a)
 #define Implies(a, b)
 
+#define EQ(a, n, p) 
+#define UQ(a, n, p)
+
 #endif
-
-typedef unsigned char byte;
-
-typedef int8_t s8;
-typedef int16_t s16;
-typedef int32_t s32;
-typedef int64_t s64;
-
-typedef uint8_t u8;
-typedef uint16_t u16;
-typedef uint32_t u32;
-typedef uint64_t u64;
-
-typedef u32 b32;
-typedef float f32;
 
 static bool GlobalQuit;
 
