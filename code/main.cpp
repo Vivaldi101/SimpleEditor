@@ -44,10 +44,14 @@ typedef float f32;
 #define Pre(a) if(!(a)) Halt
 #define Post(a) if(!(a)) Halt
 #define Invariant(a) if(!(a)) Halt
-#define Implies(a, b) Invariant(!(a) || (b))
+#define Implies(a, b) (!(a) || (b))
 
-#define EQ(a, n, p) [&]() -> bool {for(u32 i__ = 0; i__ < (n); ++i__) { if ((a)[i__] p) { return true; } } return false; }()
-#define UQ(a, n, p) [&]() -> bool {for(u32 i__ = 0; i__ < (n); ++i__) { if (!((a)[i__] p)) { return false; } } return true; }()
+#define ForI(b, n) for(u32 i = (b); i < (n); ++i)
+#define ForJ(b, n) for(u32 j = (b); j < (n); ++j)
+#define ForK(b, n) for(u32 k = (b); k < (n); ++k)
+
+#define UQ(p) [&]() -> bool {if (!(p)) { return false; } return true; }()
+#define EQ(p) [&]() -> bool {if ((p)) { return true; } return false; }()
 
 #else
 
@@ -58,6 +62,10 @@ typedef float f32;
 
 #define EQ(a, n, p) 
 #define UQ(a, n, p)
+
+#define ForI(n) 
+#define ForJ(n) 
+#define ForK(n) 
 
 #endif
 
@@ -169,6 +177,92 @@ Initialize(gap_buffer *Buffer, size_t Size)
 
 	Post(!IsGapFull(Buffer));
 	Post(Buffer->Memory);
+	GapBufferInvariants(Buffer);
+}
+
+function void
+MoveForwards(gap_buffer *Buffer)
+{
+	Pre(Buffer);
+	GapBufferInvariants(Buffer);
+
+	if (Buffer->GapEnd == Buffer->End)
+	{
+		return;
+	}
+
+	MoveBytes(Buffer->Memory + Buffer->GapBegin, Buffer->Memory + Buffer->GapEnd + 1, 1);
+	Buffer->Cursor++;
+
+	Buffer->GapBegin++;
+	Buffer->GapEnd++;
+
+	GapBufferInvariants(Buffer);
+}
+
+function void
+MoveBackwards(gap_buffer *Buffer)
+{
+	Pre(Buffer);
+	GapBufferInvariants(Buffer);
+
+	if (Buffer->GapBegin == 0)
+	{
+		return;
+	}
+
+	MoveBytes(Buffer->Memory + Buffer->GapEnd, Buffer->Memory + Buffer->GapBegin - 1, 1);
+	Buffer->Cursor--;
+
+	Buffer->GapEnd--;
+	Buffer->GapBegin--;
+
+	GapBufferInvariants(Buffer);
+}
+
+// FIX:
+function void
+SetBeginningOfLineCursor(gap_buffer* Buffer)
+{
+	Pre(Buffer);
+	GapBufferInvariants(Buffer);
+
+	while(Buffer->Cursor > 0)
+	{
+		if (Buffer->Memory[Buffer->Cursor] == '\n')
+		{
+			MoveForwards(Buffer);
+			break;
+		}
+
+		MoveBackwards(Buffer);
+	}
+
+	Post(EQ(Implies(Buffer->Cursor > 0, Buffer->Memory[Buffer->Cursor-1] == '\n')));
+
+	GapBufferInvariants(Buffer);
+}
+
+// FIX:
+function void
+SetEndOfLineCursor(gap_buffer* Buffer)
+{
+	Pre(Buffer);
+	GapBufferInvariants(Buffer);
+
+	while(Buffer->Cursor < BufferSize(Buffer))
+	{
+		if (Buffer->Memory[Buffer->Cursor] == '\n')
+		{
+			MoveBackwards(Buffer);
+			break;
+		}
+
+		MoveForwards(Buffer);
+	}
+
+	Post(EQ(Implies(Buffer->Cursor < BufferSize(Buffer), Buffer->Memory[Buffer->Cursor+1] == '\n')));
+
 	GapBufferInvariants(Buffer);
 }
 
@@ -500,9 +594,13 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 					{
 						Backspace(Buffer);
 					}
-					else if (VkCode == 'x')
+					else if (VkCode == '0')
 					{
-						//Delete(GlobalZedBuffer);
+						SetBeginningOfLineCursor(Buffer);
+					}
+					else if (VkCode == '$')
+					{
+						SetEndOfLineCursor(Buffer);
 					}
 					else
 					{
@@ -540,10 +638,16 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 				switch(WParam)
 				{
 				case VK_LEFT:	
-					MoveBackwards(Buffer); 
+					if (Buffer->Cursor > 0)
+					{
+						MoveBackwards(Buffer);
+					}
 					break;
 				case VK_RIGHT:	
-					MoveForwards(Buffer); 
+					if (Buffer->Cursor < BufferSize(Buffer))
+					{
+						MoveForwards(Buffer); 
+					}
 					break; 
 				case VK_UP:	
 					MoveUp(Buffer); 
@@ -563,6 +667,34 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 	}
 
 	return DefWindowProc(Window, Message, WParam, LParam);
+}
+
+u32 FindLastMatch(gap_buffer* Buffer, u32 i, u32 n)
+{
+	u32 k = n-1;
+	while (Buffer->Memory[k] != Buffer->Memory[i])
+	{
+		k--;
+		Invariant(Implies(0 < k && k < i, Buffer->Memory[k+1] != Buffer->Memory[i]));
+	}
+
+	Post(Buffer->Memory[i] == Buffer->Memory[k]);
+
+	return k;
+}
+
+u32 FindFirstMatch(gap_buffer* Buffer, u32 i)
+{
+	u32 k = 0;
+	while (Buffer->Memory[k] != Buffer->Memory[i])
+	{
+		k++;
+		Invariant(Implies(0 < k && k < i, Buffer->Memory[k-1] != Buffer->Memory[i]));
+	}
+
+	Post(Buffer->Memory[i] == Buffer->Memory[k]);
+
+	return k;
 }
 
 int WINAPI 
