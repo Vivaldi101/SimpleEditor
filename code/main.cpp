@@ -50,8 +50,8 @@ typedef float f32;
 #define ForJ(b, n) for(u32 j = (b); j < (n); ++j)
 #define ForK(b, n) for(u32 k = (b); k < (n); ++k)
 
-#define UQ(p) [&]() -> bool {if (!(p)) { return false; } return true; }()
-#define EQ(p) [&]() -> bool {if ((p)) { return true; } return false; }()
+#define EQ(a, n, p) [&]() -> bool {for(u32 i__ = 0; i__ < (n); ++i__) { if ((p)) { return true; } } return false; }()
+#define UQ(a, n, p) [&]() -> bool {for(u32 i__ = 0; i__ < (n); ++i__) { if (!(p)) { return false; } } return true; }()
 
 #else
 
@@ -702,6 +702,13 @@ WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
 {
 	gap_buffer GapBuffer = {};
 	Initialize(&GapBuffer, 4);
+
+	const int arr[] = {2,2,3};
+	//assert(EQ(arr, ArrayCount(arr), arr[i__] == 1));
+	//assert(EQ(arr, ArrayCount(arr), arr[i__] == 2));
+	//assert(EQ(arr, ArrayCount(arr), arr[i__] == 3));
+	assert(UQ(arr, ArrayCount(arr)-1, arr[i__ + 1] > arr[i__]));
+
 
 	// COM stuff.
 	{
