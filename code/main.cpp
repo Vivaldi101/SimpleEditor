@@ -50,8 +50,8 @@ typedef float f32;
 #define ForJ(b, n) for(u32 j = (b); j < (n); ++j)
 #define ForK(b, n) for(u32 k = (b); k < (n); ++k)
 
-#define EQ(a, n, p) [&]() -> bool {for(u32 i__ = 0; i__ < (n); ++i__) { if ((p)) { return true; } } return false; }()
-#define UQ(a, n, p) [&]() -> bool {for(u32 i__ = 0; i__ < (n); ++i__) { if (!(p)) { return false; } } return true; }()
+#define EQ(n, p) [&]() -> bool {for(size_t i__ = 0u; i__ < (n); ++i__) { if ((p)) { return true; } } return false; }()
+#define UQ(n, p) [&]() -> bool {for(size_t i__ = 0u; i__ < (n); ++i__) { if (!(p)) { return false; } } return true; }()
 
 #else
 
@@ -84,19 +84,18 @@ typedef u64 cursor_position;
 struct gap_buffer
 {
 	buffer_position GapBegin;
-	buffer_position GapEnd;
+	buffer_position GapEnd;	// Make sure this is half-open interval: [GapBegin, GapEnd)
 	buffer_position End;	
-	cursor_position Cursor;
-	//cursor_position Column;	// Might not need this.
+	cursor_position Cursor; // Make sure this is half-open interval: [Cursor, End)
 	byte *Memory;
 
-	//byte Reserved[24];	// Align to 64 byte cache line.
+	//byte Reserved[24];	// Align to 64 byte cache line. TODO: Change this to match.
 };
 
 // Post and precondition for gap size staying same.
 
 #define GapSize(Buffer) ((Buffer)->GapEnd - (Buffer)->GapBegin)
-#define IsGapFull(Buffer) (GapSize((Buffer)) == 0)
+#define IsGapFull(Buffer) (GapSize((Buffer)) == 1)
 #define BufferSize(Buffer) ((Buffer)->End - GapSize(Buffer))
 #define IsCursorInGapExcl(Buffer) ((Buffer)->GapBegin < (Buffer)->Cursor && (Buffer)->Cursor < (Buffer)->GapEnd)
 #define IsIndexInGapExcl(Buffer, Index) ((Buffer)->GapBegin < (Index) && (Index) < (Buffer)->GapEnd)
@@ -120,15 +119,15 @@ DebugMessage(const char* format, ...) {}
 function void
 GapBufferInvariants(gap_buffer *Buffer)
 {
-	Invariant(Buffer->Cursor <= Buffer->End);
+	Invariant(Buffer->Cursor < Buffer->End);
 	Invariant(Buffer->Cursor <= BufferSize(Buffer));
 
 	Invariant(!IsCursorInGapExcl(Buffer));
 
-	Invariant(Buffer->GapBegin <= Buffer->GapEnd);
+	Invariant(Buffer->GapBegin < Buffer->GapEnd);
 	Invariant(Buffer->GapEnd <= Buffer->End);
 
-	//Invariant(Buffer->Column <= Buffer->Cursor);
+	Invariant(UQ(Buffer->GapEnd - Buffer->GapBegin, Buffer->Memory[i__ + Buffer->GapBegin] == 0));
 }
 
 function void
@@ -162,21 +161,33 @@ DeInitialize(gap_buffer* Buffer)
 function void 
 Initialize(gap_buffer *Buffer, size_t Size)
 {
-	GapBufferInvariants(Buffer);
+	//GapBufferInvariants(Buffer);
 	Pre(Buffer);
-	Pre(IsGapFull(Buffer));
-	Pre(Size != 1);
+	Pre(Size > 1);
 
-	Buffer->GapBegin = Buffer->GapEnd = Buffer->End = 0;
-	Buffer->Memory = Cast(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, Size), byte*);
-	Buffer->End = Size - 1;
 	Buffer->GapBegin = 0;
 	Buffer->Cursor = 0;
-	//Buffer->Column = 0;
+	Buffer->Memory = Cast(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, Size), byte*);
+	Buffer->End = Size;
 	Buffer->GapEnd = Buffer->End;
 
 	Post(!IsGapFull(Buffer));
+
+	// wp(S, GapEnd - GapBegin != 1)
+	// wp(S, End - GapBegin != 1)
+	// wp(S, Size - GapBegin != 1)
+	// wp(S, Size - 0 != 1)
+	// (Size - 0 != 1)
+	// Size != 1
+
 	Post(Buffer->Memory);
+	// wp(Buffer->Cursor < Buffer->End);
+	// wp(Buffer->Cursor < Size);
+	// wp(0 < Size);
+	// (0 < Size);
+	// (0 < Size) && (Size != 1);
+	// => Size > 1
+
 	GapBufferInvariants(Buffer);
 }
 
@@ -238,7 +249,7 @@ SetBeginningOfLineCursor(gap_buffer* Buffer)
 		MoveBackwards(Buffer);
 	}
 
-	Post(EQ(Implies(Buffer->Cursor > 0, Buffer->Memory[Buffer->Cursor-1] == '\n')));
+	Post((Implies(Buffer->Cursor > 0, Buffer->Memory[Buffer->Cursor-1] == '\n')));
 
 	GapBufferInvariants(Buffer);
 }
@@ -261,7 +272,7 @@ SetEndOfLineCursor(gap_buffer* Buffer)
 		MoveForwards(Buffer);
 	}
 
-	Post(EQ(Implies(Buffer->Cursor < BufferSize(Buffer), Buffer->Memory[Buffer->Cursor+1] == '\n')));
+	Post((Implies(Buffer->Cursor < BufferSize(Buffer), Buffer->Memory[Buffer->Cursor+1] == '\n')));
 
 	GapBufferInvariants(Buffer);
 }
@@ -334,6 +345,7 @@ InsertNewline(gap_buffer *Buffer)
 	GapBufferInvariants(Buffer);
 }
 
+#if 0
 function void
 MoveForwards(gap_buffer *Buffer)
 {
@@ -373,6 +385,7 @@ MoveBackwards(gap_buffer *Buffer)
 
 	GapBufferInvariants(Buffer);
 }
+#endif
 
 function void
 MoveUp(gap_buffer *Buffer)
@@ -701,13 +714,13 @@ int WINAPI
 WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
 {
 	gap_buffer GapBuffer = {};
-	Initialize(&GapBuffer, 4);
+	Initialize(&GapBuffer, 2);
 
-	const int arr[] = {2,2,3};
-	//assert(EQ(arr, ArrayCount(arr), arr[i__] == 1));
-	//assert(EQ(arr, ArrayCount(arr), arr[i__] == 2));
-	//assert(EQ(arr, ArrayCount(arr), arr[i__] == 3));
-	assert(UQ(arr, ArrayCount(arr)-1, arr[i__ + 1] > arr[i__]));
+	const int arr[] = {0,2,3};
+	assert(EQ(ArrayCount(arr), arr[i__] == 0));
+	assert(EQ(ArrayCount(arr), arr[i__] == 2));
+	assert(EQ(ArrayCount(arr), arr[i__] == 3));
+	assert(UQ(ArrayCount(arr)-1, arr[i__ + 1] > arr[i__]));
 
 
 	// COM stuff.
