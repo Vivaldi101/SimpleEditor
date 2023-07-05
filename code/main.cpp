@@ -126,8 +126,6 @@ GapBufferInvariants(gap_buffer *Buffer)
 
 	Invariant(Buffer->GapBegin < Buffer->GapEnd);
 	Invariant(Buffer->GapEnd <= Buffer->End);
-
-	Invariant(UQ(Buffer->GapEnd - Buffer->GapBegin, Buffer->Memory[i__ + Buffer->GapBegin] == 0));
 }
 
 function void
@@ -195,65 +193,87 @@ Initialize(gap_buffer *Buffer, size_t Size)
 	GapBufferInvariants(Buffer);
 }
 
-function void
+function bool
 MoveForwards(gap_buffer *Buffer)
 {
 	Pre(Buffer);
 	GapBufferInvariants(Buffer);
 
+	const buffer_position OldBufferSize = BufferSize(Buffer);
+
 	if (Buffer->GapEnd == Buffer->End)
 	{
-		return;
+		return false;
 	}
 
-	MoveBytes(Buffer->Memory + Buffer->GapBegin, Buffer->Memory + Buffer->GapEnd + 1, 1);
+	MoveBytes(Buffer->Memory + Buffer->GapBegin, Buffer->Memory + Buffer->GapEnd, 1);
+
 	Buffer->Cursor++;
 
 	Buffer->GapBegin++;
 	Buffer->GapEnd++;
 
+	//Buffer->Memory[Buffer->GapEnd - 1] = 0;
+
+	Post(OldBufferSize == BufferSize(Buffer));
+
 	GapBufferInvariants(Buffer);
+
+	return true;
 }
 
-function void
+function bool
 MoveBackwards(gap_buffer *Buffer)
 {
 	Pre(Buffer);
 	GapBufferInvariants(Buffer);
 
+	const buffer_position OldBufferSize = BufferSize(Buffer);
+
 	if (Buffer->GapBegin == 0)
 	{
-		return;
+		return false;
 	}
 
-	MoveBytes(Buffer->Memory + Buffer->GapEnd, Buffer->Memory + Buffer->GapBegin - 1, 1);
+	MoveBytes(Buffer->Memory + Buffer->GapEnd - 1, Buffer->Memory + Buffer->GapBegin - 1, 1);
 	Buffer->Cursor--;
 
 	Buffer->GapEnd--;
 	Buffer->GapBegin--;
 
+	//Buffer->Memory[Buffer->GapBegin] = 0;
+
+	Post(OldBufferSize == BufferSize(Buffer));
+
 	GapBufferInvariants(Buffer);
+
+	return true;
 }
 
-// FIX:
 function void
 SetBeginningOfLineCursor(gap_buffer* Buffer)
 {
 	Pre(Buffer);
 	GapBufferInvariants(Buffer);
 
-	while(Buffer->Cursor > 0)
+	if (Buffer->Cursor == 0)
 	{
+		return;
+	}
+
+	while (MoveBackwards(Buffer)) 
+	{ 
+		GapBufferInvariants(Buffer);
 		if (Buffer->Memory[Buffer->Cursor] == '\n')
 		{
 			MoveForwards(Buffer);
+
+			Post(Buffer->Memory[Buffer->Cursor-1] == '\n');
+
 			break;
 		}
-
-		MoveBackwards(Buffer);
+		GapBufferInvariants(Buffer);
 	}
-
-	Post((Implies(Buffer->Cursor > 0, Buffer->Memory[Buffer->Cursor-1] == '\n')));
 
 	GapBufferInvariants(Buffer);
 }
@@ -314,7 +334,10 @@ TryInsertCharacter(gap_buffer *Buffer, char Char)
 		Buffer->GapEnd = Buffer->End - BufferRemnants;
 
 		// Shuffle the characters after the previous gap after new gap end.
-		MoveBytes(Buffer->Memory + Buffer->GapEnd, Buffer->Memory + OldGapBegin + 1, BufferRemnants);
+		MoveBytes(Buffer->Memory + Buffer->GapEnd, Buffer->Memory + OldGapEnd, BufferRemnants);
+
+		// Set old bytes to zero.
+		SetBytes(Buffer->Memory + OldGapEnd, 0, OldBufferSize);
 
 		// New gap not full anymore.
 		Post(!IsGapFull(Buffer));
@@ -392,6 +415,7 @@ MoveBackwards(gap_buffer *Buffer)
 }
 #endif
 
+#if 0
 function void
 MoveUp(gap_buffer *Buffer)
 {
@@ -446,6 +470,46 @@ MoveDown(gap_buffer *Buffer)
 	}
 
 	Post(GapEnd == Buffer->End || Buffer->Memory[GapEnd] == '\n');
+
+	GapBufferInvariants(Buffer);
+}
+#endif
+
+function void
+MoveUp(gap_buffer *Buffer)
+{
+	Pre(Buffer);
+	GapBufferInvariants(Buffer);
+
+	buffer_position ColumnCursor = Buffer->Cursor;
+
+	while (Buffer->GapBegin != 0 && Buffer->Memory[Buffer->GapBegin] != '\n')
+	{
+		if (Buffer->GapBegin == 0)
+		{
+			break;
+		}
+
+		--Buffer->GapBegin;
+
+		Invariant(Buffer->GapBegin >= 0);
+	}
+
+	Post(Buffer->Memory[Buffer->GapBegin] == '\n');
+
+	DebugMessage("Column cursor: \t\t%d\n", ColumnCursor);
+
+	GapBufferInvariants(Buffer);
+}
+
+function void
+MoveDown(gap_buffer *Buffer)
+{
+	Pre(Buffer);
+	GapBufferInvariants(Buffer);
+
+	buffer_position GapEnd = Buffer->GapEnd + 1;
+	buffer_position GapShift = 0;
 
 	GapBufferInvariants(Buffer);
 }
@@ -521,7 +585,7 @@ Draw(gap_buffer *Buffer, f32 Left, f32 Top, f32 Width, f32 Height)
 	{
 		GapBufferInvariants(Buffer);
 
-		if (BufIndex >= GapBegin && BufIndex <= GapEnd)
+		if (BufIndex >= GapBegin && BufIndex < GapEnd)
 		{
 			continue;
 		}
@@ -560,7 +624,7 @@ Draw(gap_buffer *Buffer, f32 Left, f32 Top, f32 Width, f32 Height)
 	const D2D1_COLOR_F CursorColor = {1.0f, 0.0f, 0.0f, 1.0f};
 	DrawCursor(CursorLeft, CursorTop, CursorRight, CursorBottom, CursorColor);
 
-	DebugMessage("Column cursor: \t%d\n", Buffer->Cursor);
+	DebugMessage("Cursor: \t%d\n", Buffer->Cursor);
 	//DebugMessage("Buffer size: \t\t%d\n", BufferSize(Buffer));
 	//DebugMessage("Buffer gap: \t\t%d\n", GapSize(Buffer));
 
@@ -724,14 +788,9 @@ int WINAPI
 WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
 {
 	gap_buffer GapBuffer = {};
+
+	// TODO: Reasonable intial buffer size
 	Initialize(&GapBuffer, 4);
-
-	const int arr[] = {0,2,3};
-	assert(EQ(ArrayCount(arr), arr[i__] == 0));
-	assert(EQ(ArrayCount(arr), arr[i__] == 2));
-	assert(EQ(ArrayCount(arr), arr[i__] == 3));
-	assert(UQ(ArrayCount(arr)-1, arr[i__ + 1] > arr[i__]));
-
 
 	// COM stuff.
 	{
@@ -753,7 +812,11 @@ WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
 	}
 
 	// Adjust the client area related to the screen origin + client size.
-	RECT DesiredWindow = { 500, 300, 800, 600 };
+	int X = 500;
+	int Y = 300;
+	int Width = 800;
+	int Height = 600;
+	RECT DesiredWindow = { X, Y, Width, Height };
 	AdjustWindowRect(&DesiredWindow, WS_OVERLAPPEDWINDOW, FALSE);
 	HWND WindowHandle = CreateWindow(L"zed", L"Editor", WS_OVERLAPPEDWINDOW, DesiredWindow.left, DesiredWindow.top, DesiredWindow.right, DesiredWindow.bottom, 0, 0, Instance, 0);
 
@@ -775,7 +838,7 @@ WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
 		// TODO: Lock to 60FPS.
 		GlobalRenderTarget->BeginDraw();
 		GlobalRenderTarget->Clear(D2D1::ColorF(D2D1::ColorF::LightBlue));
-		Draw(&GapBuffer, 0, 0, 1920, 1080);
+		Draw(&GapBuffer, 0, 0, (f32)Width, (f32)Height);
 		GlobalRenderTarget->EndDraw();
 	}
 
