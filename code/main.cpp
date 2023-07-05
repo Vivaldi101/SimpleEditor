@@ -623,9 +623,9 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 
 							char* MultiBytes = (char*)_malloca(BufferSize);
 
-							if (!Buffer)
+							if (!MultiBytes)
 							{
-								break;
+								Halt;
 							}
 
 							const int Result = WideCharToMultiByte(CP_UTF8, 0, (WCHAR*)&WParam, 1, MultiBytes, BufferSize, 0, 0);
