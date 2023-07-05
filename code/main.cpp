@@ -161,12 +161,12 @@ DeInitialize(gap_buffer* Buffer)
 function void 
 Initialize(gap_buffer *Buffer, size_t Size)
 {
-	//GapBufferInvariants(Buffer);
 	Pre(Buffer);
 	Pre(Size > 1);
 
+	// Initialize the invariants.
 	Buffer->GapBegin = 0;
-	Buffer->Cursor = 0;
+	Buffer->Cursor = Buffer->GapBegin;
 	Buffer->Memory = Cast(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, Size), byte*);
 	Buffer->End = Size;
 	Buffer->GapEnd = Buffer->End;
@@ -181,6 +181,10 @@ Initialize(gap_buffer *Buffer, size_t Size)
 	// Size != 1
 
 	Post(Buffer->Memory);
+
+	Post(GapSize(Buffer) == Size);
+	Post(BufferSize(Buffer) == 0);
+
 	// wp(Buffer->Cursor < Buffer->End);
 	// wp(Buffer->Cursor < Size);
 	// wp(0 < Size);
@@ -283,17 +287,16 @@ TryInsertCharacter(gap_buffer *Buffer, char Char)
 	Pre(Buffer);
 	GapBufferInvariants(Buffer);
 
-	if(IsGapFull(Buffer))	// gap begin == gap end
-	{
-		Pre(Buffer->GapBegin == Buffer->GapEnd);
+	const buffer_position OldBufferSize = BufferSize(Buffer);
 
+	if(IsGapFull(Buffer))
+	{
 		const buffer_position OldEnd = Buffer->End;
 		const buffer_position OldGapEnd = Buffer->GapEnd;
 		const buffer_position OldGapBegin = Buffer->GapBegin;
-		const buffer_position OldBufferSize = BufferSize(Buffer);
 		const buffer_position BufferRemnants = OldEnd - OldGapEnd;
 
-		const buffer_position NewBufferSize = OldBufferSize * 2 + OldGapEnd + BufferRemnants;
+		const buffer_position NewBufferSize = OldBufferSize * 2 + BufferRemnants;
 		const buffer_position NewGapSize = NewBufferSize / 2;
 
 		const void* RealloctedMemory = Cast(HeapReAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, Buffer->Memory, NewBufferSize), byte*);
@@ -307,11 +310,11 @@ TryInsertCharacter(gap_buffer *Buffer, char Char)
 
 		Buffer->Memory = (byte*)RealloctedMemory;
 
-		Buffer->End = NewBufferSize - 1;
+		Buffer->End = NewBufferSize;
 		Buffer->GapEnd = Buffer->End - BufferRemnants;
 
 		// Shuffle the characters after the previous gap after new gap end.
-		MoveBytes(Buffer->Memory + Buffer->GapEnd + 1, Buffer->Memory + OldGapBegin + 1, OldEnd - OldGapEnd);
+		MoveBytes(Buffer->Memory + Buffer->GapEnd, Buffer->Memory + OldGapBegin + 1, BufferRemnants);
 
 		// New gap not full anymore.
 		Post(!IsGapFull(Buffer));
@@ -320,7 +323,7 @@ TryInsertCharacter(gap_buffer *Buffer, char Char)
 		Post(Buffer->GapEnd == Buffer->End - BufferRemnants);
 
 		// Final new buffer size.
-		Post(NewBufferSize == OldBufferSize * 2 + OldGapBegin + BufferRemnants);
+		Post(NewBufferSize == OldBufferSize * 2 + BufferRemnants);
 	}
 
 	Buffer->Memory[Buffer->GapBegin] = Char;
@@ -328,6 +331,8 @@ TryInsertCharacter(gap_buffer *Buffer, char Char)
 	//Buffer->Column++;
 
 	Buffer->GapBegin++;
+
+	Post(OldBufferSize + 1 == BufferSize(Buffer));
 
 	GapBufferInvariants(Buffer);
 
@@ -451,6 +456,7 @@ Backspace(gap_buffer *Buffer)
 {
 	Pre(Buffer);
 	GapBufferInvariants(Buffer);
+	const buffer_position OldBufferSize = BufferSize(Buffer);
 
 	// Cant backspace anymore.
 	if (Buffer->GapBegin == 0)
@@ -462,6 +468,10 @@ Backspace(gap_buffer *Buffer)
 	//Buffer->Column--;
 
 	Buffer->GapBegin--;
+
+	Buffer->Memory[Buffer->GapBegin] = 0;
+
+	Post(OldBufferSize - 1 == BufferSize(Buffer));
 
 	GapBufferInvariants(Buffer);
 }
@@ -714,7 +724,7 @@ int WINAPI
 WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
 {
 	gap_buffer GapBuffer = {};
-	Initialize(&GapBuffer, 2);
+	Initialize(&GapBuffer, 4);
 
 	const int arr[] = {0,2,3};
 	assert(EQ(ArrayCount(arr), arr[i__] == 0));
