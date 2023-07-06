@@ -481,23 +481,23 @@ MoveUp(gap_buffer *Buffer)
 	Pre(Buffer);
 	GapBufferInvariants(Buffer);
 
-	buffer_position ColumnCursor = Buffer->Cursor;
+	buffer_position ColumnCursorIndex = Buffer->Cursor;
 
-	while (Buffer->GapBegin != 0 && Buffer->Memory[Buffer->GapBegin] != '\n')
+	SetBeginningOfLineCursor(Buffer);
+
+	ColumnCursorIndex = ColumnCursorIndex - Buffer->Cursor;
+
+	MoveBackwards(Buffer);
+
+	SetBeginningOfLineCursor(Buffer);
+
+	while (ColumnCursorIndex > 0)
 	{
-		if (Buffer->GapBegin == 0)
-		{
-			break;
-		}
-
-		--Buffer->GapBegin;
-
-		Invariant(Buffer->GapBegin >= 0);
+		MoveForwards(Buffer);
+		--ColumnCursorIndex;
 	}
 
-	Post(Buffer->Memory[Buffer->GapBegin] == '\n');
-
-	DebugMessage("Column cursor: \t\t%d\n", ColumnCursor);
+	//DebugMessage("Column cursor: \t\t%d\n", ColumnCursor);
 
 	GapBufferInvariants(Buffer);
 }
