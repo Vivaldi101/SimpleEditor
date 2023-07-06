@@ -193,6 +193,31 @@ Initialize(gap_buffer *Buffer, size_t Size)
 	GapBufferInvariants(Buffer);
 }
 
+function char
+GetCursorChar(gap_buffer *Buffer)
+{
+	Pre(Buffer);
+	Pre(Buffer->Cursor < Buffer->End - GapSize(Buffer));
+
+	GapBufferInvariants(Buffer);
+
+	buffer_position Index = Buffer->Cursor < Buffer->GapBegin ? Buffer->Cursor : Buffer->Cursor + GapSize(Buffer);
+
+	Post(Index < Buffer->End);
+
+	// wp(Index < Buffer->End)
+	// wp(Cursor < Buffer->End)
+	// (Cursor < Buffer->End)
+
+	// wp(Index < Buffer->End)
+	// wp(Cursor + GapSize < Buffer->End)
+	// wp(Cursor < Buffer->End - GapSize)
+
+	GapBufferInvariants(Buffer);
+
+	return Buffer->Memory[Index];
+}
+
 function bool
 MoveForwards(gap_buffer *Buffer)
 {
@@ -624,7 +649,12 @@ Draw(gap_buffer *Buffer, f32 Left, f32 Top, f32 Width, f32 Height)
 	const D2D1_COLOR_F CursorColor = {1.0f, 0.0f, 0.0f, 1.0f};
 	DrawCursor(CursorLeft, CursorTop, CursorRight, CursorBottom, CursorColor);
 
-	DebugMessage("Cursor: \t%d\n", Buffer->Cursor);
+	if (Buffer->Cursor < Buffer->End - GapSize(Buffer))
+	{
+		const char CursorChar = GetCursorChar(Buffer);
+		DebugMessage("Cursor char: %c\n", CursorChar);
+	}
+
 	//DebugMessage("Buffer size: \t\t%d\n", BufferSize(Buffer));
 	//DebugMessage("Buffer gap: \t\t%d\n", GapSize(Buffer));
 
@@ -725,13 +755,13 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 				switch(WParam)
 				{
 				case VK_LEFT:	
-					if (Buffer->Cursor > 0)
+					//if (Buffer->Cursor > 0)
 					{
 						MoveBackwards(Buffer);
 					}
 					break;
 				case VK_RIGHT:	
-					if (Buffer->Cursor < BufferSize(Buffer))
+					//if (Buffer->Cursor < BufferSize(Buffer))
 					{
 						MoveForwards(Buffer); 
 					}
