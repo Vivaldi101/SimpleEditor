@@ -1,8 +1,4 @@
 
-/////////////////////////
-// TODO: Remove the globals.
-/////////////////////////
-
 #include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -69,14 +65,17 @@ typedef float f32;
 
 #endif
 
-static bool GlobalQuit;
+global bool GlobalQuit;
 
-// Test globals.
-static ID2D1Factory *GlobalD2D1Factory;
-static IDWriteFactory *GlobalWriteFactory;
-static ID2D1HwndRenderTarget *GlobalRenderTarget;
-static IDWriteTextFormat *GlobalTextFormat;
-static ID2D1SolidColorBrush* GlobalTextBrush;
+/////////////////////////
+// TODO: Remove the globals.
+/////////////////////////
+
+global ID2D1Factory *GlobalD2D1Factory;
+global IDWriteFactory *GlobalWriteFactory;
+global ID2D1HwndRenderTarget *GlobalRenderTarget;
+global IDWriteTextFormat *GlobalTextFormat;
+global ID2D1SolidColorBrush* GlobalTextBrush;
 
 typedef u64 buffer_position;
 typedef u64 cursor_position;
@@ -194,7 +193,7 @@ Initialize(gap_buffer *Buffer, size_t Size)
 }
 
 function char
-GetCursorChar(gap_buffer *Buffer)
+GetCharAtCursor(gap_buffer *Buffer)
 {
 	Pre(Buffer);
 	Pre(Buffer->Cursor < Buffer->End - GapSize(Buffer));
@@ -651,7 +650,7 @@ Draw(gap_buffer *Buffer, f32 Left, f32 Top, f32 Width, f32 Height)
 
 	if (Buffer->Cursor < Buffer->End - GapSize(Buffer))
 	{
-		const char CursorChar = GetCursorChar(Buffer);
+		const char CursorChar = GetCharAtCursor(Buffer);
 		DebugMessage("Cursor char: %c\n", CursorChar);
 	}
 
