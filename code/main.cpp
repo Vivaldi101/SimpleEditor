@@ -218,7 +218,7 @@ GetCharAtCursor(gap_buffer *Buffer)
 }
 
 function bool
-MoveForwards(gap_buffer *Buffer)
+TryMoveForwards(gap_buffer *Buffer)
 {
 	Pre(Buffer);
 	GapBufferInvariants(Buffer);
@@ -247,7 +247,7 @@ MoveForwards(gap_buffer *Buffer)
 }
 
 function bool
-MoveBackwards(gap_buffer *Buffer)
+TryMoveBackwards(gap_buffer *Buffer)
 {
 	Pre(Buffer);
 	GapBufferInvariants(Buffer);
@@ -285,12 +285,12 @@ SetBeginningOfLineCursor(gap_buffer* Buffer)
 		return;
 	}
 
-	while (MoveBackwards(Buffer)) 
+	while (TryMoveBackwards(Buffer)) 
 	{ 
 		GapBufferInvariants(Buffer);
 		if (Buffer->Memory[Buffer->Cursor] == '\n')
 		{
-			MoveForwards(Buffer);
+			TryMoveForwards(Buffer);
 
 			Post(Buffer->Memory[Buffer->Cursor-1] == '\n');
 
@@ -313,11 +313,11 @@ SetEndOfLineCursor(gap_buffer* Buffer)
 	{
 		if (Buffer->Memory[Buffer->Cursor] == '\n')
 		{
-			MoveBackwards(Buffer);
+			TryMoveBackwards(Buffer);
 			break;
 		}
 
-		MoveForwards(Buffer);
+		TryMoveForwards(Buffer);
 	}
 
 	Post((Implies(Buffer->Cursor < BufferSize(Buffer), Buffer->Memory[Buffer->Cursor+1] == '\n')));
@@ -364,6 +364,7 @@ TryInsertCharacter(gap_buffer *Buffer, char Char)
 		SetBytes(Buffer->Memory + OldGapEnd, 0, OldBufferSize);
 
 		// New gap not full anymore.
+		// TODO: preconds.
 		Post(!IsGapFull(Buffer));
 
 		// Make sure old buffer remnants fit after the gap.
@@ -375,7 +376,6 @@ TryInsertCharacter(gap_buffer *Buffer, char Char)
 
 	Buffer->Memory[Buffer->GapBegin] = Char;
 	Buffer->Cursor++;
-	//Buffer->Column++;
 
 	Buffer->GapBegin++;
 
@@ -511,13 +511,13 @@ MoveUp(gap_buffer *Buffer)
 
 	ColumnCursorIndex = ColumnCursorIndex - Buffer->Cursor;
 
-	MoveBackwards(Buffer);
+	TryMoveBackwards(Buffer);
 
 	SetBeginningOfLineCursor(Buffer);
 
 	while (ColumnCursorIndex > 0)
 	{
-		MoveForwards(Buffer);
+		TryMoveForwards(Buffer);
 		--ColumnCursorIndex;
 	}
 
@@ -553,7 +553,6 @@ Backspace(gap_buffer *Buffer)
 	}
 
 	Buffer->Cursor--;
-	//Buffer->Column--;
 
 	Buffer->GapBegin--;
 
@@ -754,16 +753,10 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 				switch(WParam)
 				{
 				case VK_LEFT:	
-					//if (Buffer->Cursor > 0)
-					{
-						MoveBackwards(Buffer);
-					}
+					TryMoveBackwards(Buffer);
 					break;
 				case VK_RIGHT:	
-					//if (Buffer->Cursor < BufferSize(Buffer))
-					{
-						MoveForwards(Buffer); 
-					}
+					TryMoveForwards(Buffer); 
 					break; 
 				case VK_UP:	
 					MoveUp(Buffer); 
@@ -864,6 +857,7 @@ WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
 			TranslateMessage(&Message);
 			DispatchMessage(&Message);
 		}
+
 		// TODO: Lock to 60FPS.
 		GlobalRenderTarget->BeginDraw();
 		GlobalRenderTarget->Clear(D2D1::ColorF(D2D1::ColorF::LightBlue));
