@@ -352,6 +352,8 @@ TryInsertCharacter(gap_buffer *Buffer, char Char)
 			return false;
 		}
 
+		Pre((2*OldBufferSize - OldGapBegin) != 1);
+
 		Buffer->Memory = (byte*)RealloctedMemory;
 
 		Buffer->End = NewBufferSize;
@@ -366,6 +368,20 @@ TryInsertCharacter(gap_buffer *Buffer, char Char)
 		// New gap not full anymore.
 		// TODO: preconds.
 		Post(!IsGapFull(Buffer));
+		// wp(S, (GapEnd - GapBegin) != 1)
+		// wp(S, ((End - BufferRemnants) - GapBegin) != 1)
+		// wp(S, ((NewBufferSize - BufferRemnants) - GapBegin) != 1)
+
+		// wp(S, (((OldBufferSize * 2 + (OldEnd - OldGapEnd)) - (OldEnd - OldGapEnd)) - GapBegin) != 1)
+
+		// wp((((OldBufferSize * 2 + (OldEnd - OldGapEnd)) - (OldEnd - OldGapEnd)) - GapBegin) != 1)
+		// wp((((2*OldBufferSize + (OldEnd - OldGapEnd)) - (OldEnd - OldGapEnd)) - GapBegin) != 1)
+
+		// wp(((2*OldBufferSize + OldEnd - OldGapEnd - OldEnd + OldGapEnd) - GapBegin) != 1)
+
+		// wp((2*OldBufferSize - GapBegin) != 1)
+
+		// ((2*OldBufferSize - GapBegin) != 1)
 
 		// Make sure old buffer remnants fit after the gap.
 		Post(Buffer->GapEnd == Buffer->End - BufferRemnants);
@@ -604,7 +620,7 @@ Draw(gap_buffer *Buffer, f32 Left, f32 Top, f32 Width, f32 Height)
 
 	// TODO: Handle multibyte unicode advancements.
 
-	for (buffer_position BufIndex = 0, UtfIndex = 0; BufIndex <= End && UtfIndex != UtfBufferSize; ++BufIndex)
+	for (buffer_position BufIndex = 0, UtfIndex = 0; BufIndex < End && UtfIndex != UtfBufferSize; ++BufIndex)
 	{
 		GapBufferInvariants(Buffer);
 
