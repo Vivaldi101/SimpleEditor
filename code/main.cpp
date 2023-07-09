@@ -333,6 +333,8 @@ function bool
 TryInsertCharacter(gap_buffer *Buffer, char Char)
 {
 	Pre(Buffer);
+	Pre(Buffer->End * 2 > 1 + Buffer->GapBegin);
+
 	GapBufferInvariants(Buffer);
 
 	if(IsGapFull(Buffer))
@@ -352,10 +354,6 @@ TryInsertCharacter(gap_buffer *Buffer, char Char)
 
 			return false;
 		}
-
-		Pre(Buffer->GapEnd < Buffer->End * 2);
-		Pre(Buffer->End * 2 != 1 + Buffer->GapBegin);
-		Pre(Buffer->End * 2 != Buffer->GapEnd);
 
 		Buffer->Memory = (byte*)RealloctedMemory;
 
