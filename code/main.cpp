@@ -353,8 +353,9 @@ TryInsertCharacter(gap_buffer *Buffer, char Char)
 			return false;
 		}
 
-		// TODO: Fix this
-//		Pre(OldBufferSize * 2 != OldGapEnd);
+		Pre(Buffer->GapEnd < Buffer->End * 2);
+		Pre(Buffer->End * 2 != 1 + Buffer->GapBegin);
+		Pre(Buffer->End * 2 != Buffer->GapEnd);
 
 		Buffer->Memory = (byte*)RealloctedMemory;
 
@@ -364,19 +365,24 @@ TryInsertCharacter(gap_buffer *Buffer, char Char)
 		// Shuffle the characters after the previous gap after new gap end.
 		MoveBytes(Buffer->Memory + Buffer->GapEnd, Buffer->Memory + OldGapEnd, BufferRemnants);
 
-		// Set old bytes to zero.
-		//SetBytes(Buffer->Memory + OldGapEnd, 0, OldBufferSize);
-
 		// New gap not full anymore.
 		// wp(S, GapSize((Buffer)) != 1)
 		// wp(S, (GapEnd - GapBegin) != 1)
-		// wp(S, (Buffer->End - BufferRemnants - GapBegin) != 1)
-		// wp(S, (NewBufferSize - BufferRemnants - GapBegin) != 1)
-		// wp(S, (OldBufferSize * 4 + BufferRemnants - BufferRemnants - GapBegin) != 1)
 
-		// wp(S, (OldBufferSize * 4 - GapBegin) != 1)
-		// wp(S, OldBufferSize * 4 != GapBegin + 1)
-		// wp(S, OldBufferSize * 4 != GapEnd)
+		// wp(S, (NewBufferSize - BufferRemnants - GapBegin) != 1)
+		// wp(S, (OldEnd * 2 + BufferRemnants - BufferRemnants - GapBegin) != 1)
+		// wp(S, (OldEnd * 2 + OldEnd - OldGapEnd - (OldEnd - OldGapEnd) - GapBegin) != 1)
+		// wp(S, (OldEnd * 2 + OldEnd - OldGapEnd - OldEnd + OldGapEnd - GapBegin) != 1)
+
+		// wp(S, (OldEnd * 2 - GapBegin) != 1)
+		// wp(S, OldEnd * 2 - GapBegin != 1)
+		// wp(S, OldEnd * 2 != 1 + GapBegin)	== precond
+
+		// wp(S, OldEnd * 2 != 1 + GapBegin)   == precond
+
+		// wp(S, GapEnd != 1 + GapBegin) == IsGapFull
+
+		// wp(S, GapEnd != OldEnd * 2) == ?
 
 		Post(!IsGapFull(Buffer));
 
