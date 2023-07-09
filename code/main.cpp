@@ -77,6 +77,9 @@ global ID2D1HwndRenderTarget *GlobalRenderTarget;
 global IDWriteTextFormat *GlobalTextFormat;
 global ID2D1SolidColorBrush* GlobalTextBrush;
 
+global unsigned int GlobalPaneX;
+global unsigned int GlobalPaneY;
+
 typedef u64 buffer_position;
 typedef u64 cursor_position;
 
@@ -151,7 +154,6 @@ DeInitialize(gap_buffer* Buffer)
 	GapBufferInvariants(Buffer);
 	Pre(Buffer);
 
-	// Test return values.
 	HeapFree(GetProcessHeap(), HEAP_ZERO_MEMORY, Buffer->Memory);
 }
 
@@ -181,6 +183,8 @@ Initialize(gap_buffer *Buffer, size_t Size)
 
 	Post(GapSize(Buffer) == Size);
 	Post(BufferSize(Buffer) == 0);
+
+	Post(((2 * BufferSize(Buffer)) - Buffer->GapBegin) != 1);
 
 	// wp(Buffer->Cursor < Buffer->End);
 	// wp(Buffer->Cursor < Size);
@@ -340,8 +344,7 @@ TryInsertCharacter(gap_buffer *Buffer, char Char)
 		const buffer_position OldGapBegin = Buffer->GapBegin;
 		const buffer_position BufferRemnants = OldEnd - OldGapEnd;
 
-		const buffer_position NewBufferSize = OldBufferSize * 2 + BufferRemnants;
-		const buffer_position NewGapSize = NewBufferSize / 2;
+		const buffer_position NewBufferSize = OldBufferSize * 4 + BufferRemnants;
 
 		const void* RealloctedMemory = Cast(HeapReAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, Buffer->Memory, NewBufferSize), byte*);
 
@@ -352,7 +355,7 @@ TryInsertCharacter(gap_buffer *Buffer, char Char)
 			return false;
 		}
 
-		Pre((2*OldBufferSize - OldGapBegin) != 1);
+		Pre(OldBufferSize * 4 != OldGapEnd);
 
 		Buffer->Memory = (byte*)RealloctedMemory;
 
@@ -363,31 +366,30 @@ TryInsertCharacter(gap_buffer *Buffer, char Char)
 		MoveBytes(Buffer->Memory + Buffer->GapEnd, Buffer->Memory + OldGapEnd, BufferRemnants);
 
 		// Set old bytes to zero.
-		SetBytes(Buffer->Memory + OldGapEnd, 0, OldBufferSize);
+		//SetBytes(Buffer->Memory + OldGapEnd, 0, OldBufferSize);
 
 		// New gap not full anymore.
-		// TODO: preconds.
-		Post(!IsGapFull(Buffer));
+		// wp(S, GapSize((Buffer)) != 1)
 		// wp(S, (GapEnd - GapBegin) != 1)
-		// wp(S, ((End - BufferRemnants) - GapBegin) != 1)
-		// wp(S, ((NewBufferSize - BufferRemnants) - GapBegin) != 1)
+		// wp(S, (Buffer->End - BufferRemnants - GapBegin) != 1)
+		// wp(S, (NewBufferSize - BufferRemnants - GapBegin) != 1)
+		// wp(S, (OldBufferSize * 4 + BufferRemnants - BufferRemnants - GapBegin) != 1)
 
-		// wp(S, (((OldBufferSize * 2 + (OldEnd - OldGapEnd)) - (OldEnd - OldGapEnd)) - GapBegin) != 1)
+		// wp(S, (OldBufferSize * 4 - GapBegin) != 1)
+		// wp(S, OldBufferSize * 4 != GapBegin + 1)
+		// wp(S, OldBufferSize * 4 != GapEnd)
 
-		// wp((((OldBufferSize * 2 + (OldEnd - OldGapEnd)) - (OldEnd - OldGapEnd)) - GapBegin) != 1)
-		// wp((((2*OldBufferSize + (OldEnd - OldGapEnd)) - (OldEnd - OldGapEnd)) - GapBegin) != 1)
-
-		// wp(((2*OldBufferSize + OldEnd - OldGapEnd - OldEnd + OldGapEnd) - GapBegin) != 1)
-
-		// wp((2*OldBufferSize - GapBegin) != 1)
-
-		// ((2*OldBufferSize - GapBegin) != 1)
+		Post(!IsGapFull(Buffer));
 
 		// Make sure old buffer remnants fit after the gap.
+		// wp(S, Buffer->GapEnd == Buffer->End - BufferRemnants)
+		// wp(S, NewBufferSize - BufferRemnants == NewBufferSize - BufferRemnants)
+		// wp(S, T)
+		// T
 		Post(Buffer->GapEnd == Buffer->End - BufferRemnants);
 
 		// Final new buffer size.
-		Post(NewBufferSize == OldBufferSize * 2 + BufferRemnants);
+		Post(NewBufferSize == OldBufferSize * 4 + BufferRemnants);
 	}
 
 	Buffer->Memory[Buffer->GapBegin] = Char;
@@ -776,9 +778,11 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 					break; 
 				case VK_UP:	
 					MoveUp(Buffer); 
+					++GlobalPaneY;
 					break; 
 				case VK_DOWN:	
 					MoveDown(Buffer); 
+					--GlobalPaneY;
 					break; 
 				}
 			} break;
@@ -828,7 +832,7 @@ WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
 	gap_buffer GapBuffer = {};
 
 	// TODO: Reasonable intial buffer size
-	Initialize(&GapBuffer, 4);
+	Initialize(&GapBuffer, 2);
 
 	// COM stuff.
 	{
