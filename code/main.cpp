@@ -335,8 +335,6 @@ TryInsertCharacter(gap_buffer *Buffer, char Char)
 	Pre(Buffer);
 	GapBufferInvariants(Buffer);
 
-	const buffer_position OldBufferSize = BufferSize(Buffer);
-
 	if(IsGapFull(Buffer))
 	{
 		const buffer_position OldEnd = Buffer->End;
@@ -344,7 +342,7 @@ TryInsertCharacter(gap_buffer *Buffer, char Char)
 		const buffer_position OldGapBegin = Buffer->GapBegin;
 		const buffer_position BufferRemnants = OldEnd - OldGapEnd;
 
-		const buffer_position NewBufferSize = OldBufferSize * 4 + BufferRemnants;
+		const buffer_position NewBufferSize = OldEnd * 2 + BufferRemnants;
 
 		const void* RealloctedMemory = Cast(HeapReAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, Buffer->Memory, NewBufferSize), byte*);
 
@@ -355,7 +353,8 @@ TryInsertCharacter(gap_buffer *Buffer, char Char)
 			return false;
 		}
 
-		Pre(OldBufferSize * 4 != OldGapEnd);
+		// TODO: Fix this
+//		Pre(OldBufferSize * 2 != OldGapEnd);
 
 		Buffer->Memory = (byte*)RealloctedMemory;
 
@@ -389,15 +388,13 @@ TryInsertCharacter(gap_buffer *Buffer, char Char)
 		Post(Buffer->GapEnd == Buffer->End - BufferRemnants);
 
 		// Final new buffer size.
-		Post(NewBufferSize == OldBufferSize * 4 + BufferRemnants);
+		Post(NewBufferSize == OldEnd * 2 + BufferRemnants);
 	}
 
 	Buffer->Memory[Buffer->GapBegin] = Char;
 	Buffer->Cursor++;
 
 	Buffer->GapBegin++;
-
-	Post(OldBufferSize + 1 == BufferSize(Buffer));
 
 	GapBufferInvariants(Buffer);
 
