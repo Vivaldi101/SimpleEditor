@@ -29,6 +29,7 @@ typedef float f32;
 #define global static
 #define local static
 #define function static
+#define forceinline __forceinline
 
 #define Cast(x, t) (t)(x)
 #define ZeroStruct(x) memset((x), 0, sizeof(*(x)));
@@ -113,12 +114,8 @@ DebugMessage(const char* format, ...)
 	va_end(Args);
 	OutputDebugStringA(Temp);
 }
-#else
-function void
-DebugMessage(const char* format, ...) {}
-#endif
 
-function void
+forceinline void
 GapBufferInvariants(gap_buffer *Buffer)
 {
 	Invariant(Buffer->Cursor < Buffer->End);
@@ -129,6 +126,13 @@ GapBufferInvariants(gap_buffer *Buffer)
 	Invariant(Buffer->GapBegin < Buffer->GapEnd);
 	Invariant(Buffer->GapEnd <= Buffer->End);
 }
+#else
+function void
+DebugMessage(const char* format, ...) { }
+
+function void
+GapBufferInvariants(gap_buffer *Buffer) { }
+#endif
 
 function void
 MoveBytes(byte *Destination, byte *Source, u64 Size)
@@ -196,7 +200,7 @@ Initialize(gap_buffer *Buffer, size_t Size)
 	GapBufferInvariants(Buffer);
 }
 
-function char
+forceinline char
 GetCharAtCursor(gap_buffer *Buffer)
 {
 	Pre(Buffer);
