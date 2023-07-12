@@ -87,12 +87,19 @@ typedef u64 cursor_position;
 struct gap_buffer
 {
 	buffer_position GapBegin;
-	buffer_position GapEnd;	// Make sure this is half-open interval: [GapBegin, GapEnd)
+	buffer_position GapEnd;	// [GapBegin, GapEnd)
 	buffer_position End;	
-	cursor_position Cursor; // Make sure this is half-open interval: [Cursor, End)
+	cursor_position Cursor; // [Cursor, End)
 	byte *Memory;
 
 	//byte Reserved[24];	// Align to 64 byte cache line. TODO: Change this to match.
+};
+
+struct pane
+{
+	// Pane range to scroll.
+	cursor_position Start;
+	cursor_position End;
 };
 
 // Post and precondition for gap size staying same.
@@ -198,6 +205,31 @@ Initialize(gap_buffer *Buffer, size_t Size)
 	// => Size > 1
 
 	GapBufferInvariants(Buffer);
+}
+
+function char
+GetCharAtIndex(gap_buffer* Buffer, cursor_position CursorIndex)
+{
+	Pre(Buffer);
+	Pre(CursorIndex < Buffer->End - GapSize(Buffer));
+
+	GapBufferInvariants(Buffer);
+
+	buffer_position BufferIndex = CursorIndex < Buffer->GapBegin ? CursorIndex : CursorIndex + GapSize(Buffer);
+
+	Post(BufferIndex < Buffer->End);
+
+	// wp(Index < Buffer->End)
+	// wp(Cursor < Buffer->End)
+	// (Cursor < Buffer->End)
+
+	// wp(Index < Buffer->End)
+	// wp(Cursor + GapSize < Buffer->End)
+	// wp(Cursor < Buffer->End - GapSize)
+
+	GapBufferInvariants(Buffer);
+
+	return Buffer->Memory[BufferIndex];
 }
 
 forceinline char
@@ -586,11 +618,10 @@ Backspace(gap_buffer *Buffer)
 	GapBufferInvariants(Buffer);
 }
 
-// Fix the size of the cursor to match font size.
-// Fix the line alignment.
 function void
 DrawCursor(f32 CursorLeft, f32 CursorTop, f32 CursorRight, f32 CursorBottom, D2D1_COLOR_F CursorColor)
 {
+	D2D1_ROUNDED_RECT CursorRounded;
 	D2D1_RECT_F Cursor;
 
 	Cursor.left = CursorLeft;
@@ -598,14 +629,21 @@ DrawCursor(f32 CursorLeft, f32 CursorTop, f32 CursorRight, f32 CursorBottom, D2D
 	Cursor.right = CursorRight;
 	Cursor.bottom = CursorBottom;
 
+	CursorRounded.rect = Cursor;
+	CursorRounded.radiusX = 5.0f;
+	CursorRounded.radiusY = 5.0f;
+
 	D2D1_COLOR_F OldColor = GlobalTextBrush->GetColor();
 	GlobalTextBrush->SetColor(&CursorColor);
-	GlobalRenderTarget->DrawRectangle(Cursor, GlobalTextBrush, 2.0f);
+	GlobalTextBrush->SetOpacity(0.95f);
+	//GlobalRenderTarget->DrawRectangle(Cursor, GlobalTextBrush, 2.0f, NULL);
+	GlobalRenderTarget->DrawRoundedRectangle(CursorRounded, GlobalTextBrush, 2.0f, NULL);
+	GlobalTextBrush->SetOpacity(1.0f);
 	GlobalTextBrush->SetColor(&OldColor);
 }
 
 function void
-Draw(gap_buffer *Buffer, f32 Left, f32 Top, f32 Width, f32 Height)
+Draw(gap_buffer *Buffer, pane *Pane, f32 Left, f32 Top, f32 Width, f32 Height)
 {
 	const size_t UtfBufferSize = 512;
 	byte Utf8[UtfBufferSize];
@@ -627,18 +665,18 @@ Draw(gap_buffer *Buffer, f32 Left, f32 Top, f32 Width, f32 Height)
 
 	// TODO: Handle multibyte unicode advancements.
 
-	for (buffer_position BufIndex = 0, UtfIndex = 0; BufIndex < End && UtfIndex != UtfBufferSize; ++BufIndex)
+	buffer_position UtfIndex = 0;
+	const cursor_position PaneEnd = Pane->End;
+	for (cursor_position PaneCursor = Pane->Start; PaneCursor != PaneEnd; PaneCursor++)
 	{
 		GapBufferInvariants(Buffer);
 
-		if (BufIndex >= GapBegin && BufIndex < GapEnd)
+		if (PaneCursor < Buffer->End - GapSize(Buffer))
 		{
-			continue;
+			Utf8[UtfIndex] = GetCharAtIndex(Buffer, PaneCursor);
+			MultiByteToWideChar(CP_UTF8, 0, (LPCSTR)Utf8 + UtfIndex, 1, Utf16 + UtfIndex, sizeof(Utf16));
+			UtfIndex++;
 		}
-
-		CopyBytes(Utf8 + UtfIndex, Buffer->Memory + BufIndex, 1);
-		MultiByteToWideChar(CP_UTF8, 0, (LPCSTR)Utf8 + UtfIndex, 1, Utf16 + UtfIndex, sizeof(Utf16));
-		UtfIndex++;
 		Invariant(UtfIndex <= ArrayCount(Utf8) && UtfIndex <= ArrayCount(Utf16));
 		GapBufferInvariants(Buffer);
 	}
@@ -667,7 +705,8 @@ Draw(gap_buffer *Buffer, f32 Left, f32 Top, f32 Width, f32 Height)
 	f32 CursorRight = CursorLeft + CursorMetrics.width;
 	f32 CursorBottom = CursorTop + CursorMetrics.height;
 
-	const D2D1_COLOR_F CursorColor = {1.0f, 0.0f, 0.0f, 1.0f};
+	const D2D1_COLOR_F CursorColor = {1.0f, 1.0f, 0.0f, 1.0f};
+
 	DrawCursor(CursorLeft, CursorTop, CursorRight, CursorBottom, CursorColor);
 
 	if (Buffer->Cursor < Buffer->End - GapSize(Buffer))
@@ -676,12 +715,21 @@ Draw(gap_buffer *Buffer, f32 Left, f32 Top, f32 Width, f32 Height)
 		DebugMessage("Cursor char: %c\n", CursorChar);
 	}
 
-	//DebugMessage("Buffer size: \t\t%d\n", BufferSize(Buffer));
-	//DebugMessage("Buffer gap: \t\t%d\n", GapSize(Buffer));
-
 	GlobalRenderTarget->PopAxisAlignedClip();
 
 	GapBufferInvariants(Buffer);
+}
+
+function void
+UpdateScrollView(gap_buffer *Buffer)
+{
+	Pre(Buffer);
+}
+
+function void
+LoadTestFile(gap_buffer *Buffer)
+{
+	Pre(Buffer);
 }
 
 LRESULT CALLBACK
@@ -789,6 +837,9 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 					MoveDown(Buffer); 
 					--GlobalPaneY;
 					break; 
+				case VK_END:	
+					LoadTestFile(Buffer); 
+					break;
 				}
 			} break;
 		default:
@@ -835,6 +886,10 @@ int WINAPI
 WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
 {
 	gap_buffer GapBuffer = {};
+	pane CurrentPane = {};
+
+	CurrentPane.Start = 5;
+	CurrentPane.End = 13;
 
 	// TODO: Reasonable intial buffer size
 	Initialize(&GapBuffer, 2);
@@ -843,7 +898,7 @@ WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
 	{
 		HRESULT DWriteResult = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &GlobalD2D1Factory);
 		DWriteResult = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), (IUnknown**)&GlobalWriteFactory);
-		DWriteResult = GlobalWriteFactory->CreateTextFormat(L"Consolas", 0, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 30.0f, L"en-us", &GlobalTextFormat);
+		DWriteResult = GlobalWriteFactory->CreateTextFormat(L"Consolas", 0, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 32.0f, L"en-us", &GlobalTextFormat);
 		GlobalTextFormat->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
 	}
 
@@ -886,7 +941,7 @@ WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
 		// TODO: Lock to 60FPS.
 		GlobalRenderTarget->BeginDraw();
 		GlobalRenderTarget->Clear(D2D1::ColorF(D2D1::ColorF::LightBlue));
-		Draw(&GapBuffer, 0, 0, (f32)Width, (f32)Height);
+		Draw(&GapBuffer, &CurrentPane, 0, 0, (f32)Width, (f32)Height);
 		GlobalRenderTarget->EndDraw();
 	}
 
