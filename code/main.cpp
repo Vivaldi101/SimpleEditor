@@ -97,10 +97,11 @@ struct gap_buffer
 
 struct pane
 {
-	// Pane range to scroll.
-	cursor_position Start;
+	cursor_position Start; // [Start, End)
 	cursor_position End;
 };
+
+global pane GlobalCurrentPane;
 
 // Post and precondition for gap size staying same.
 
@@ -207,7 +208,7 @@ Initialize(gap_buffer *Buffer, size_t Size)
 	GapBufferInvariants(Buffer);
 }
 
-function char
+forceinline char
 GetCharAtIndex(gap_buffer* Buffer, cursor_position CursorIndex)
 {
 	Pre(Buffer);
@@ -258,7 +259,7 @@ GetCharAtCursor(gap_buffer *Buffer)
 }
 
 function bool
-TryMoveForwards(gap_buffer *Buffer)
+MoveForwards(gap_buffer *Buffer)
 {
 	Pre(Buffer);
 	GapBufferInvariants(Buffer);
@@ -286,18 +287,15 @@ TryMoveForwards(gap_buffer *Buffer)
 	return true;
 }
 
-function bool
-TryMoveBackwards(gap_buffer *Buffer)
+function void
+MoveBackwards(gap_buffer *Buffer)
 {
 	Pre(Buffer);
+	Pre(Buffer->GapBegin != 0);
+
 	GapBufferInvariants(Buffer);
 
 	const buffer_position OldBufferSize = BufferSize(Buffer);
-
-	if (Buffer->GapBegin == 0)
-	{
-		return false;
-	}
 
 	MoveBytes(Buffer->Memory + Buffer->GapEnd - 1, Buffer->Memory + Buffer->GapBegin - 1, 1);
 	Buffer->Cursor--;
@@ -310,39 +308,39 @@ TryMoveBackwards(gap_buffer *Buffer)
 	Post(OldBufferSize == BufferSize(Buffer));
 
 	GapBufferInvariants(Buffer);
-
-	return true;
 }
 
 function void
-SetBeginningOfLineCursor(gap_buffer* Buffer)
+SetCursorToBeginOfLine(gap_buffer* Buffer)
 {
 	Pre(Buffer);
 	GapBufferInvariants(Buffer);
 
-	if (Buffer->Cursor == 0)
+	if (Buffer->Cursor >= Buffer->End - GapSize(Buffer))
 	{
 		return;
 	}
 
-	while (TryMoveBackwards(Buffer)) 
-	{ 
+	while (GetCharAtCursor(Buffer) != '\n' && Buffer->GapBegin != 0)
+	{
 		GapBufferInvariants(Buffer);
-		if (Buffer->Memory[Buffer->Cursor] == '\n')
-		{
-			TryMoveForwards(Buffer);
+		Pre(GetCharAtCursor(Buffer) != '\n');
+		MoveBackwards(Buffer);
+	}
 
-			Post(Buffer->Memory[Buffer->Cursor-1] == '\n');
+	Invariant(GetCharAtCursor(Buffer) == '\n' || Buffer->GapBegin == 0);
 
-			break;
-		}
-		GapBufferInvariants(Buffer);
+	if (GetCharAtCursor(Buffer) == '\n' && Buffer->GapEnd != Buffer->End)
+	{
+		Pre(GetCharAtCursor(Buffer) == '\n');
+		MoveForwards(Buffer);
+		Post(GetCharAtCursor(Buffer) != '\n');
 	}
 
 	GapBufferInvariants(Buffer);
 }
 
-// FIX:
+// TODO: FIX
 function void
 SetEndOfLineCursor(gap_buffer* Buffer)
 {
@@ -353,11 +351,11 @@ SetEndOfLineCursor(gap_buffer* Buffer)
 	{
 		if (Buffer->Memory[Buffer->Cursor] == '\n')
 		{
-			TryMoveBackwards(Buffer);
+			MoveBackwards(Buffer);
 			break;
 		}
 
-		TryMoveForwards(Buffer);
+		MoveForwards(Buffer);
 	}
 
 	Post((Implies(Buffer->Cursor < BufferSize(Buffer), Buffer->Memory[Buffer->Cursor+1] == '\n')));
@@ -562,17 +560,17 @@ MoveUp(gap_buffer *Buffer)
 
 	buffer_position ColumnCursorIndex = Buffer->Cursor;
 
-	SetBeginningOfLineCursor(Buffer);
+	SetCursorToBeginOfLine(Buffer);
 
 	ColumnCursorIndex = ColumnCursorIndex - Buffer->Cursor;
 
-	TryMoveBackwards(Buffer);
+	MoveBackwards(Buffer);
 
-	SetBeginningOfLineCursor(Buffer);
+	SetCursorToBeginOfLine(Buffer);
 
 	while (ColumnCursorIndex > 0)
 	{
-		TryMoveForwards(Buffer);
+		MoveForwards(Buffer);
 		--ColumnCursorIndex;
 	}
 
@@ -727,6 +725,16 @@ UpdateScrollView(gap_buffer *Buffer)
 }
 
 function void
+ScrollPaneDown(gap_buffer *Buffer)
+{
+	Pre(Buffer);
+	GapBufferInvariants(Buffer);
+
+	GlobalCurrentPane.Start += 20;
+	GlobalCurrentPane.End += 20;
+}
+
+function void
 LoadTestFile(gap_buffer *Buffer)
 {
 	Pre(Buffer);
@@ -782,7 +790,7 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 					}
 					else if (VkCode == '0')
 					{
-						SetBeginningOfLineCursor(Buffer);
+						SetCursorToBeginOfLine(Buffer);
 					}
 					else if (VkCode == '$')
 					{
@@ -824,18 +832,23 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 				switch(WParam)
 				{
 				case VK_LEFT:	
-					TryMoveBackwards(Buffer);
+					if (Buffer->GapBegin != 0)
+					{
+						MoveBackwards(Buffer);
+					}
 					break;
 				case VK_RIGHT:	
-					TryMoveForwards(Buffer); 
+					if (Buffer->GapEnd != Buffer->End)
+					{
+						MoveForwards(Buffer);
+					}
 					break; 
 				case VK_UP:	
-					MoveUp(Buffer); 
-					++GlobalPaneY;
+					//MoveUp(Buffer); 
 					break; 
 				case VK_DOWN:	
-					MoveDown(Buffer); 
-					--GlobalPaneY;
+					//MoveDown(Buffer); 
+					ScrollPaneDown(Buffer);
 					break; 
 				case VK_END:	
 					LoadTestFile(Buffer); 
@@ -886,10 +899,9 @@ int WINAPI
 WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
 {
 	gap_buffer GapBuffer = {};
-	pane CurrentPane = {};
 
-	CurrentPane.Start = 5;
-	CurrentPane.End = 13;
+	GlobalCurrentPane.Start = 0;
+	GlobalCurrentPane.End = 512;
 
 	// TODO: Reasonable intial buffer size
 	Initialize(&GapBuffer, 2);
@@ -924,6 +936,7 @@ WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
 
 	Invariant(WindowHandle);
 
+	// TODO: Attach pane or do a pointer to the current buffer inside the pane structure.
 	SetWindowLongPtr(WindowHandle, GWLP_USERDATA, (LONG_PTR)&GapBuffer);
 
 	UpdateWindow(WindowHandle);
@@ -941,7 +954,7 @@ WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
 		// TODO: Lock to 60FPS.
 		GlobalRenderTarget->BeginDraw();
 		GlobalRenderTarget->Clear(D2D1::ColorF(D2D1::ColorF::LightBlue));
-		Draw(&GapBuffer, &CurrentPane, 0, 0, (f32)Width, (f32)Height);
+		Draw(&GapBuffer, &GlobalCurrentPane, 0, 0, (f32)Width, (f32)Height);
 		GlobalRenderTarget->EndDraw();
 	}
 
