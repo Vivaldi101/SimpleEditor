@@ -258,18 +258,15 @@ GetCharAtCursor(gap_buffer *Buffer)
 	return Buffer->Memory[Index];
 }
 
-function bool
+function void
 MoveForwards(gap_buffer *Buffer)
 {
 	Pre(Buffer);
+	Pre(Buffer->Cursor < BufferSize(Buffer));
+
 	GapBufferInvariants(Buffer);
 
 	const buffer_position OldBufferSize = BufferSize(Buffer);
-
-	if (Buffer->GapEnd == Buffer->End)
-	{
-		return false;
-	}
 
 	MoveBytes(Buffer->Memory + Buffer->GapBegin, Buffer->Memory + Buffer->GapEnd, 1);
 
@@ -283,15 +280,13 @@ MoveForwards(gap_buffer *Buffer)
 	Post(OldBufferSize == BufferSize(Buffer));
 
 	GapBufferInvariants(Buffer);
-
-	return true;
 }
 
 function void
 MoveBackwards(gap_buffer *Buffer)
 {
 	Pre(Buffer);
-	Pre(Buffer->GapBegin != 0);
+	Pre(Buffer->Cursor != 0);
 
 	GapBufferInvariants(Buffer);
 
@@ -316,25 +311,29 @@ SetCursorToBeginOfLine(gap_buffer* Buffer)
 	Pre(Buffer);
 	GapBufferInvariants(Buffer);
 
+	do
+	{
+		if (Buffer->Cursor == 0)
+		{
+			return;
+		}
+		MoveBackwards(Buffer);
+		if (Buffer->Cursor >= Buffer->End - GapSize(Buffer))
+		{
+			return;
+		}
+	} while (GetCharAtCursor(Buffer) != '\n');
+
+	//Post(GetCharAtCursor(Buffer) == '\n' || Buffer->Cursor == 0);
+
 	if (Buffer->Cursor >= Buffer->End - GapSize(Buffer))
 	{
 		return;
 	}
 
-	while (GetCharAtCursor(Buffer) != '\n' && Buffer->GapBegin != 0)
+	if (GetCharAtCursor(Buffer) == '\n')
 	{
-		GapBufferInvariants(Buffer);
-		Pre(GetCharAtCursor(Buffer) != '\n');
-		MoveBackwards(Buffer);
-	}
-
-	Invariant(GetCharAtCursor(Buffer) == '\n' || Buffer->GapBegin == 0);
-
-	if (GetCharAtCursor(Buffer) == '\n' && Buffer->GapEnd != Buffer->End)
-	{
-		Pre(GetCharAtCursor(Buffer) == '\n');
 		MoveForwards(Buffer);
-		Post(GetCharAtCursor(Buffer) != '\n');
 	}
 
 	GapBufferInvariants(Buffer);
@@ -498,7 +497,7 @@ Backspace(gap_buffer *Buffer)
 	const buffer_position OldBufferSize = BufferSize(Buffer);
 
 	// Cant backspace anymore.
-	if (Buffer->GapBegin == 0)
+	if (Buffer->Cursor == 0)
 	{
 		return;
 	}
@@ -628,8 +627,10 @@ ScrollPaneDown(gap_buffer *Buffer)
 	Pre(Buffer);
 	GapBufferInvariants(Buffer);
 
-	GlobalCurrentPane.Start += 20;
-	GlobalCurrentPane.End += 20;
+	SetCursorToBeginOfLine(Buffer);
+
+	//GlobalCurrentPane.Start += 20;
+	//GlobalCurrentPane.End += 20;
 }
 
 function void
@@ -730,13 +731,13 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 				switch(WParam)
 				{
 				case VK_LEFT:	
-					if (Buffer->GapBegin != 0)
+					if (Buffer->Cursor != 0)
 					{
 						MoveBackwards(Buffer);
 					}
 					break;
 				case VK_RIGHT:	
-					if (Buffer->GapEnd != Buffer->End)
+					if (Buffer->Cursor < BufferSize(Buffer))
 					{
 						MoveForwards(Buffer);
 					}
