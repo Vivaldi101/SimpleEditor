@@ -324,12 +324,7 @@ SetCursorToBeginOfLine(gap_buffer* Buffer)
 		}
 	} while (GetCharAtCursor(Buffer) != '\n');
 
-	//Post(GetCharAtCursor(Buffer) == '\n' || Buffer->Cursor == 0);
-
-	if (Buffer->Cursor >= Buffer->End - GapSize(Buffer))
-	{
-		return;
-	}
+	Post(GetCharAtCursor(Buffer) == '\n' || Buffer->Cursor == 0);
 
 	if (GetCharAtCursor(Buffer) == '\n')
 	{
@@ -530,10 +525,7 @@ DrawCursor(f32 CursorLeft, f32 CursorTop, f32 CursorRight, f32 CursorBottom, D2D
 
 	D2D1_COLOR_F OldColor = GlobalTextBrush->GetColor();
 	GlobalTextBrush->SetColor(&CursorColor);
-	GlobalTextBrush->SetOpacity(0.95f);
-	//GlobalRenderTarget->DrawRectangle(Cursor, GlobalTextBrush, 2.0f, NULL);
 	GlobalRenderTarget->DrawRoundedRectangle(CursorRounded, GlobalTextBrush, 2.0f, NULL);
-	GlobalTextBrush->SetOpacity(1.0f);
 	GlobalTextBrush->SetColor(&OldColor);
 }
 
