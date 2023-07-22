@@ -369,6 +369,24 @@ SetCursorToBeginOfNextLine(gap_buffer* Buffer)
 	GapBufferInvariants(Buffer);
 }
 
+function void
+SetCursorToBeginOfPreviousLine(gap_buffer* Buffer)
+{
+	Pre(Buffer);
+	GapBufferInvariants(Buffer);
+
+	SetCursorToBeginOfLine(Buffer);
+
+	if (Buffer->Cursor != 0)
+	{
+		MoveBackwards(Buffer);
+	}
+
+	SetCursorToBeginOfLine(Buffer);
+
+	GapBufferInvariants(Buffer);
+}
+
 // TODO: FIX
 function void
 SetEndOfLineCursor(gap_buffer* Buffer)
@@ -581,10 +599,6 @@ Draw(gap_buffer *Buffer, pane *Pane, f32 Left, f32 Top, f32 Width, f32 Height)
 
 	GapBufferInvariants(Buffer);
 
-	buffer_position GapBegin = Buffer->GapBegin;
-	buffer_position GapEnd = Buffer->GapEnd;
-	buffer_position End = Buffer->End;
-
 	// TODO: Handle multibyte unicode advancements.
 
 	buffer_position UtfIndex = 0;
@@ -741,7 +755,7 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 					}
 					else if (VkCode == '1')
 					{
-						SetCursorToBeginOfNextLine(Buffer);
+						SetCursorToBeginOfPreviousLine(Buffer);
 					}
 					else if (VkCode == '$')
 					{
@@ -799,7 +813,6 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 					break; 
 				case VK_DOWN:	
 					//MoveDown(Buffer); 
-					ScrollPaneDown(Buffer);
 					break; 
 				case VK_END:	
 					LoadTestFile(Buffer); 
@@ -854,8 +867,10 @@ WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
 	// TODO: Reasonable intial buffer size
 	Initialize(&GapBuffer, 2);
 
+	// TODO: Change the values to cover the entire pane
+	// TODO: Think about the pane range
 	GlobalCurrentPane.Begin = GapBuffer.Cursor;
-	GlobalCurrentPane.End = 1024;
+	GlobalCurrentPane.End = 256;
 
 	// COM stuff.
 	{
