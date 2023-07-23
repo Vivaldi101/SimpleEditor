@@ -106,6 +106,8 @@ global pane GlobalCurrentPane;
 // Post and precondition for gap size staying same.
 
 #define GapSize(Buffer) ((Buffer)->GapEnd - (Buffer)->GapBegin)
+#define ScrollSize(Scroll) ((Scroll)->End - (Scroll)->Begin)
+
 #define IsGapFull(Buffer) (GapSize((Buffer)) == 1)
 #define BufferSize(Buffer) ((Buffer)->End - GapSize(Buffer))
 #define IsCursorInGapExcl(Buffer) ((Buffer)->GapBegin < (Buffer)->Cursor && (Buffer)->Cursor < (Buffer)->GapEnd)
@@ -123,19 +125,17 @@ DebugMessage(const char* format, ...)
 	OutputDebugStringA(Temp);
 }
 
-forceinline void
+function void
 GapBufferInvariants(gap_buffer *Buffer)
 {
 	Invariant(Buffer->Cursor < Buffer->End);
 	Invariant(Buffer->Cursor <= BufferSize(Buffer));
 
-	Invariant(!IsCursorInGapExcl(Buffer));
-
 	Invariant(Buffer->GapBegin < Buffer->GapEnd);
 	Invariant(Buffer->GapEnd <= Buffer->End);
 }
 
-forceinline void
+function void
 ScrollPaneInvariants(pane *Scroll)
 {
 	Invariant(Scroll->Begin < Scroll->End);
@@ -634,7 +634,6 @@ Draw(gap_buffer *Buffer, pane *Pane, f32 Left, f32 Top, f32 Width, f32 Height)
 
 	Pre(TextLayout);
 
-	TextLayout->Release();
 
 	f32 CursorLeft = CursorX + Layout.left;
 	f32 CursorTop = CursorY + Layout.top;
@@ -653,6 +652,18 @@ Draw(gap_buffer *Buffer, pane *Pane, f32 Left, f32 Top, f32 Width, f32 Height)
 
 	//DebugMessage("Cursor: %d\n", Buffer->Cursor);
 
+	// Draw end pane marker.
+	TextLayout->HitTestTextPosition((u32)Pane->End, FALSE, &CursorX, &CursorY, &CursorMetrics);
+	CursorLeft = CursorX + Layout.left;
+	CursorTop = CursorY + Layout.top;
+	CursorRight = CursorLeft + CursorMetrics.width;
+	CursorBottom = CursorTop + CursorMetrics.height;
+
+	//const D2D1_COLOR_F EndMarkerColor = {1.0f, 0.0f, 0.0f, 1.0f};
+	//DrawCursor(CursorLeft, CursorTop, CursorRight, CursorBottom, EndMarkerColor);
+
+	TextLayout->Release();
+
 	GlobalRenderTarget->PopAxisAlignedClip();
 
 	GapBufferInvariants(Buffer);
@@ -663,36 +674,40 @@ UpdateScrollPaneView(gap_buffer *Buffer, pane *Scroll)
 {
 	Pre(Buffer);
 	Pre(Scroll);
+
 	GapBufferInvariants(Buffer);
 	ScrollPaneInvariants(Scroll);
 
-	// TODO: line based offsetting
+	// Before the view.
 	if (Buffer->Cursor < Scroll->Begin)
 	{
-		int foo = 42;
+		const cursor_position Cursor = Buffer->Cursor;
 	}
+	// After the view.
 	else if (Buffer->Cursor >= Scroll->End)
 	{
-		int foo = 42;
+		const cursor_position CurrentCursor = Buffer->Cursor;
+
 		SetCursorToBeginOfLine(Buffer);
+
+		cursor_position CurrentCursorDistance = CurrentCursor - Buffer->Cursor;
+
+		SetCursorToBeginOfPreviousLine(Buffer);
+
+		cursor_position PrevCursorDistance = CurrentCursor - Buffer->Cursor;
+
+		Post(PrevCursorDistance >= CurrentCursorDistance);
+
+		Scroll->Begin += (PrevCursorDistance - CurrentCursorDistance);
+		Buffer->Cursor = Scroll->End - 1;
 	}
 
-	Post(Buffer->Cursor >= Scroll->Begin && Buffer->Cursor < Scroll->End);
+	// Cursor must always be in the current scroll region.
+	Post(Buffer->Cursor >= Scroll->Begin);
+	Post(Buffer->Cursor < Scroll->End);
 
 	ScrollPaneInvariants(Scroll);
 	GapBufferInvariants(Buffer);
-}
-
-function void
-ScrollPaneDown(gap_buffer *Buffer)
-{
-	Pre(Buffer);
-	GapBufferInvariants(Buffer);
-
-	SetCursorToBeginOfLine(Buffer);
-
-	//GlobalCurrentPane.Start += 20;
-	//GlobalCurrentPane.End += 20;
 }
 
 function void
@@ -752,10 +767,6 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 					else if (VkCode == '0')
 					{
 						SetCursorToBeginOfLine(Buffer);
-					}
-					else if (VkCode == '1')
-					{
-						SetCursorToBeginOfPreviousLine(Buffer);
 					}
 					else if (VkCode == '$')
 					{
@@ -870,7 +881,7 @@ WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
 	// TODO: Change the values to cover the entire pane
 	// TODO: Think about the pane range
 	GlobalCurrentPane.Begin = GapBuffer.Cursor;
-	GlobalCurrentPane.End = 256;
+	GlobalCurrentPane.End = 8;
 
 	// COM stuff.
 	{
@@ -917,7 +928,7 @@ WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
 			DispatchMessage(&Message);
 		}
 
-		//UpdateScrollPaneView(&GapBuffer, &GlobalCurrentPane);
+		UpdateScrollPaneView(&GapBuffer, &GlobalCurrentPane);
 
 		// TODO: Lock to 60FPS.
 		GlobalRenderTarget->BeginDraw();
