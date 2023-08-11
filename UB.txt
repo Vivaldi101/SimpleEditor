@@ -1,0 +1,117 @@
+
+NOTES:
+
+What it is?
+Why does it exist?  
+Consequences:
+Detection && Mitigation
+
+Basically stuff you are not supposed to do
+- Some UBs listed by the standard, some only implied.
+- Hard to avoid.
+- Consequences vary largely.
+
+Heavily used in optimizing compilers.
+
+Example 1 What should happen here:
+
+sqrt(-1) = ?
+i ?
+nan ?
+throw ?
+halt ?
+return ?
+UB ?
+
+END Example 1
+
+UB is design choice - somewhat extreme but one which has the fewest requirements on the compiler
+
+Used by HW platforms to protect functionality
+
+Example 2 (unaligned access) would crash when alignment is assumed or instruction generated on systems where alignment is required by the cpu:
+
+const int a[] = {1,2,3};
+const int* p = (int*)(1 + (char*)a);
+
+printf("%d:", *p);
+
+END Example 2
+
+What happens when program runs into UB?
+
+Case 1: Program breaks asap (fault, divide integer by zero, compiler error etc.).
+Case 2: Latent error.
+Case 3: Latent error but works as expected.
+
+Nearly all old C/C++ programs contain UB.
+
+Solution 1: Go back and fix.
+Solution 2: Dial the optimizer.
+
+
+Example 3(signed integer overflow) Compiler can do whatever it pleases: 
+
+Bad:
+void test(int x)
+{
+    const bool result = (x + 1) > x;
+
+    assert(???);
+}
+
+Good:
+void test(int x)
+{
+    assert(x != INT_MAX);
+
+    const bool result = (x + 1) > x;
+
+    assert(result);
+}
+
+END Example 3
+
+Example 4
+
+assert(n > 0);
+
+assert(n <= INT32_MAX);
+assert(x < INT32_MAX - n);
+
+program is UB if (n > INT32_MAX) or (x >= INT32_MAX - n)
+
+for (int i = 0; i < n; ++i)
+{
+    a[i] = x + i;
+
+    wp(x + i, x + i <= INT32_MAX)
+    wp(x + i, i <= INT32_MAX - x)
+
+    wp(n - 1 <= INT32_MAX - x)
+    wp(x + i, n - 1 <= INT32_MAX - x)
+
+    wp(n - 1 <= INT32_MAX - x)
+
+    wp(n - 1 + x <= INT32_MAX)
+
+    wp(x <= INT32_MAX - (n - 1))
+
+    wp(x <= INT32_MAX - n + 1)
+
+    wp(x <= INT32_MAX - n + 1)
+
+    wp(x < INT32_MAX - n)
+}
+
+END Example 4
+
+Example 5
+
+Can we do this optimization in the compiler?
+(a + b) > a => b > 0 
+
+Yes in clang/gcc not in msvc
+clang/gcc heavily rely on UB to do optimizations
+
+END Example 5
