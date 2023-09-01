@@ -49,6 +49,7 @@ typedef float f32;
 
 #define EQ(n, p) [&]() -> bool {for(size_t i__ = 0u; i__ < (n); ++i__) { if ((p)) { return true; } } return false; }()
 #define UQ(n, p) [&]() -> bool {for(size_t i__ = 0u; i__ < (n); ++i__) { if (!(p)) { return false; } } return true; }()
+#define CQ(n, p) [&]() -> unsigned int {unsigned int counter = 0; for(size_t i__ = 0u; i__ < (n); ++i__) { if ((p)) { ++counter; } } return counter; }()
 
 #else
 
@@ -59,6 +60,7 @@ typedef float f32;
 
 #define EQ(a, n, p) 
 #define UQ(a, n, p)
+#define CQ(n, p)
 
 #define ForI(n) 
 #define ForJ(n) 
