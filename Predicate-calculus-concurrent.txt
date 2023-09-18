@@ -1,0 +1,54 @@
+A concurrent program consists of processes(atleast one thread per process) and shared objects.
+A process is a sequential program executing on some processor; the shared objects are built
+using shared memory or a computer-communication network.
+
+Concurrent programs are often found in reactive systems - systems whose
+outputs may affect their environment and, therefore; may influence subsequent
+inputs. e.g. operating systems.
+
+Correctness for a reactive system concerns initial, final, as well as intermediate states.
+
+Two forms of synchronization are prevalent in concurrent programs. 
+
+The first, mutual exclusion, involves grouping actions into critical sections and blocking execution of a
+critical section in one process whenever a critical section from another has
+started but not completed. 
+Mutual exclusion ensures that a state resulting from
+execution of only part of a critical section is never visible to another process.
+
+The second form, condition synchronization, blocks a process until the system
+state satisfies some specified condition. This is useful for ordering events that
+occur at different processes.
+
+Propositional logic in concurrent programs.
+(Zeroth-order and first-order logic)
+
+Correctness means that certain desirable program properties hold. In the
+case of sequential programs, where a control resides at each moment in only
+one point, these properties usually are:
+
+1. Partial correctness, that is, whenever a result is delivered it is correct
+w.r.t. the task to be solved by the program. For example, upon termi-
+nation of a sorting program, the input should indeed be sorted. Partial
+means that the program is not guaranteed to terminate and thus deliver
+a result at all.
+2. Termination. For example, a sorting program should always terminate.
+3. Absence of failures. For example, there should be no division by zero and
+no overflow.
+In the case of concurrent programs, where control can reside at the same
+time in several control points, the above properties are much more difficult
+to establish. Moreover, as observed before, we are then also interested in
+establishing
+
+In the case of concurrent programs, where control can reside at the same
+time in several control points, the above properties are much more difficult
+to establish. Moreover, as observed before, we are then also interested in
+establishing:
+
+4. Interference freedom, that is, no component of a parallel program can
+manipulate in an undesirable way the variables shared with another com-
+ponent.
+5. Deadlock freedom, that is, a parallel program does not end up in a situ-
+ation where all nonterminated components are waiting indefinitely for a
+condition to become true.
+6. Correctness under the fairness assumption.
