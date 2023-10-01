@@ -60,8 +60,59 @@ Temporal logic allows specifying and proving the temporal properties of a progra
 Safety properties: Asserts that the program does not do something bad.
 Liveness properties: Asserts that the program does eventually do something good.
 
+e.g:
 Partial correctness, mutual exclusion and deadlock-freedom are safety properties.
 Termination and starvation-freedom are liveness properties.
 
+e.g:
+Assuming that bracketed expressions({...}) are atomic operations:
+S1: 
+{
+    x = x + 1;
+}
+S2: 
+{
+    x = x + y + 1;
+    x = x - y
+}
+
+Statements S1 and S2 produce same mapping from initial to final states, as such they are equivalent in sequential execution of a program.
+
+However consider the following concurrent program where cobegin and coend mark the clauses which are executed concurrently:
+
+{cobegin}
+S3:
+{
+    y = y - 7;
+} 
+S:
+{
+    ?
+}
+{coend}
+
+Substituting S1 for S yields a program that increments x by one, while substituting S2 for S yields a program that increments x by either one or eight 
+- the latter occuring if the statement S1: { y = y - 7 } is executed between the execution of the two statements of S2.
+
+Hence S1 and S2 are not equivalent operations when appearing in concurrent execution.
+
+x = x + y + 1;
+y = y - 7;
+x = x - y
 
 
+x = (x + y + 1) - (y - 7)
+x = x + y + 1 - y + 7
+x = x + 1 + 7
+x = x + 8
+
+wp(x = x + y + 1; y = y - 7; x = x - y, R)
+=
+R(x = x + y + 1; y = y - 7, x = x - y)
+R(x = x + y + 1; x = x - (y - 7))
+R(x = (x + y + 1) - (y - 7))
+R(x = x + y + 1 - y + 7)
+R(x = x + 1 + 7)
+R(x = x + 8)
+
+As such we cannot restrict our attention to what is true before and after the execution of a concurrent program; we must also consider what happens during its execution.
