@@ -45,10 +45,23 @@ time in several control points, the above properties are much more difficult
 to establish. Moreover, as observed before, we are then also interested in
 establishing:
 
-4. Interference freedom, that is, no component of a parallel program can
+4. Interference-freedom, that is, no component of a parallel program can
 manipulate in an undesirable way the variables shared with another com-
 ponent.
-5. Deadlock freedom, that is, a parallel program does not end up in a situ-
+5. Deadlock-freedom, that is, a parallel program does not end up in a situ-
 ation where all nonterminated components are waiting indefinitely for a
 condition to become true.
 6. Correctness under the fairness assumption.
+
+Extension of logic - known as temporal logic - is a way to analyze the temporal properties of concurrent programs like the order in which the instructions of a program must happen, rather than just the input/output relationship.
+
+Temporal logic allows specifying and proving the temporal properties of a program interest to us:
+
+Safety properties: Asserts that the program does not do something bad.
+Liveness properties: Asserts that the program does eventually do something good.
+
+Partial correctness, mutual exclusion and deadlock-freedom are safety properties.
+Termination and starvation-freedom are liveness properties.
+
+
+
