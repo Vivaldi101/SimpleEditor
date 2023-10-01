@@ -107,46 +107,7 @@ x = x + 1 + 7
 x = x + 8
 
 
-x = (x + y + 1) - (y - 7)
-x = x + y + 1 - y + 7
-x = x + 1 + 7
-x = x + 8
-
-wp(x = x + y + 1; y = y - 7; x = x - y)
-=
-(x = x + y + 1; y = y - 7, x = x - y)
-(x = x + y + 1; x = x - (y - 7))
-(x = (x + y + 1) - (y - 7))
-(x = x + y + 1 - y + 7)
-(x = x + 1 + 7)
-
-wp(x = x + y + 1; y = y - 7; x = x - y, x = x + 8)
-wp(x = x + y + 1; y = y - 7, (x - y) = (x - y) + 8)
-wp(x = x + y + 1, (x - (y - 7)) = (x - (y - 7)) + 8)
-wp((x - (y - 7)) = (x - (y - 7)) + 8)
-
-wp(((x + y + 1) - (y - 7)) = ((x + y + 1) - (y - 7)) + 8)
-wp(((x + y + 1) - y + 7) = ((x + y + 1) - y + 7) + 8)
-
-wp(x + y + 1 - y + 7 = x + y + 1 - y + 7 + 8)
-
-wp(x + 1 + 7 = x + 1 + 7 + 8)
-
-wp(x + 8 = x + 8 + 8)
-
-wp(x + 8 = x + 16) - 8
-wp(x + 0 = x + 8)
-
-wp(x = x + 8) <-> x = x + 8
-= T
-
-{x = x + 8} S {x = x + 8}
-
 As such we cannot restrict our attention to what is true before and after the execution of a concurrent program; we must also consider what happens during its execution.
-
-wp('x = x + 8, 'x = x + 8)
-wp(x + 8 = x + 8)
-T
 
 wp(x := x + y + 1; y := y - 7; 'x := x - y, 'x = x + 8)
 
