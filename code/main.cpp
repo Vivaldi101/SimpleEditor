@@ -372,6 +372,33 @@ SetCursorToBeginOfNextLine(gap_buffer* Buffer)
 }
 
 function void
+SetCursorToEndOfLine(gap_buffer* Buffer)
+{
+	Pre(Buffer);
+	GapBufferInvariants(Buffer);
+
+	SetCursorToBeginOfNextLine(Buffer);
+
+	if (Buffer->Cursor == 0)
+	{
+		return;
+	}
+	MoveBackwards(Buffer);
+
+	if (Buffer->Cursor >= Buffer->End - GapSize(Buffer))
+	{
+		return;
+	}
+
+	if (GetCharAtCursor(Buffer) == '\n')
+	{
+		MoveBackwards(Buffer);
+	}
+
+	GapBufferInvariants(Buffer);
+}
+
+function void
 SetCursorToBeginOfPreviousLine(gap_buffer* Buffer)
 {
 	Pre(Buffer);
@@ -385,29 +412,6 @@ SetCursorToBeginOfPreviousLine(gap_buffer* Buffer)
 	}
 
 	SetCursorToBeginOfLine(Buffer);
-
-	GapBufferInvariants(Buffer);
-}
-
-// TODO: FIX
-function void
-SetEndOfLineCursor(gap_buffer* Buffer)
-{
-	Pre(Buffer);
-	GapBufferInvariants(Buffer);
-
-	while(Buffer->Cursor < BufferSize(Buffer))
-	{
-		if (Buffer->Memory[Buffer->Cursor] == '\n')
-		{
-			MoveBackwards(Buffer);
-			break;
-		}
-
-		MoveForwards(Buffer);
-	}
-
-	Post((Implies(Buffer->Cursor < BufferSize(Buffer), Buffer->Memory[Buffer->Cursor+1] == '\n')));
 
 	GapBufferInvariants(Buffer);
 }
@@ -772,7 +776,8 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 					}
 					else if (VkCode == '$')
 					{
-						SetEndOfLineCursor(Buffer);
+						SetCursorToEndOfLine(Buffer);
+						//SetCursorToBeginOfNextLine(Buffer);
 					}
 					else
 					{
