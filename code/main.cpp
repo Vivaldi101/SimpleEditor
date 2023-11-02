@@ -7,6 +7,9 @@
 #include <d2d1.h>
 #include <dwrite.h>
 #include <malloc.h>
+#include <memory>
+
+#include "utils.h"
 
 #pragma comment(lib, "dwrite.lib")
 #pragma comment(lib, "d2d1.lib")
@@ -29,7 +32,8 @@ typedef float f32;
 #define global static
 #define local static
 #define function static
-#define forceinline __forceinline
+
+#define forceinline 
 
 #define Cast(x, t) (t)(x)
 #define ZeroStruct(x) memset((x), 0, sizeof(*(x)));
@@ -49,7 +53,7 @@ typedef float f32;
 
 #define EQ(n, p) [&]() -> bool {for(size_t i__ = 0u; i__ < (n); ++i__) { if ((p)) { return true; } } return false; }()
 #define UQ(n, p) [&]() -> bool {for(size_t i__ = 0u; i__ < (n); ++i__) { if (!(p)) { return false; } } return true; }()
-#define CQ(n, p) [&]() -> unsigned int {unsigned int counter = 0; for(size_t i__ = 0u; i__ < (n); ++i__) { if ((p)) { ++counter; } } return counter; }()
+#define CQ(n, p) [&]() -> size_t {size_t counter = 0; for(size_t i__ = 0u; i__ < (n); ++i__) { if ((p)) { ++counter; } } return counter; }()
 
 #else
 
@@ -91,7 +95,7 @@ struct gap_buffer
 	buffer_position GapBegin;
 	buffer_position GapEnd;	// [GapBegin, GapEnd)
 	buffer_position End;	
-	cursor_position Cursor; // [Cursor, End)
+	cursor_position Cursor; // [Cursor, End). Logical cursor position.
 	byte *Memory;
 
 	//byte Reserved[24];	// Align to 64 byte cache line. TODO: Change this to match.
@@ -378,22 +382,32 @@ SetCursorToEndOfLine(gap_buffer* Buffer)
 	GapBufferInvariants(Buffer);
 
 	SetCursorToBeginOfNextLine(Buffer);
-
 	if (Buffer->Cursor == 0)
 	{
 		return;
 	}
-	MoveBackwards(Buffer);
-
-	if (Buffer->Cursor >= Buffer->End - GapSize(Buffer))
+	if (Buffer->Cursor - 1 >= Buffer->End - GapSize(Buffer))
 	{
 		return;
 	}
 
-	if (GetCharAtCursor(Buffer) == '\n')
+	// Stayed on the current line
+	if (GetCharAtIndex(Buffer, Buffer->Cursor-1) != '\n')	
 	{
 		MoveBackwards(Buffer);
+		return;
 	}
+
+	// Went to a new line
+	// Either an empty or non-empty line
+
+	if (GetCharAtCursor(Buffer) == '\n')
+	{
+		return;
+	}
+
+	MoveBackwards(Buffer);
+	MoveBackwards(Buffer);
 
 	GapBufferInvariants(Buffer);
 }
@@ -849,30 +863,30 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 	return DefWindowProc(Window, Message, WParam, LParam);
 }
 
-u32 FindLastMatch(gap_buffer* Buffer, u32 i, u32 n)
+u32 FindLastMatch(int* Buffer, u32 i, u32 n)
 {
 	u32 k = n-1;
-	while (Buffer->Memory[k] != Buffer->Memory[i])
+	while (Buffer[k] != Buffer[i])
 	{
 		k--;
-		Invariant(Implies(0 < k && k < i, Buffer->Memory[k+1] != Buffer->Memory[i]));
+		Invariant(Implies(0 < k && k < i, Buffer[k+1] != Buffer[i]));
 	}
 
-	Post(Buffer->Memory[i] == Buffer->Memory[k]);
+	Post(Buffer[i] == Buffer[k]);
 
 	return k;
 }
 
-u32 FindFirstMatch(gap_buffer* Buffer, u32 i)
+u32 FindFirstMatch(int* Buffer, u32 i)
 {
 	u32 k = 0;
-	while (Buffer->Memory[k] != Buffer->Memory[i])
+	while (Buffer[k] != Buffer[i])
 	{
+		Invariant(Implies(0 < k && k <= i, Buffer[k] != Buffer[i]));
 		k++;
-		Invariant(Implies(0 < k && k < i, Buffer->Memory[k-1] != Buffer->Memory[i]));
 	}
 
-	Post(Buffer->Memory[i] == Buffer->Memory[k]);
+	Post(Buffer[i] == Buffer[k]);
 
 	return k;
 }
@@ -882,13 +896,13 @@ WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
 {
 	gap_buffer GapBuffer = {};
 
-	// TODO: Reasonable intial buffer size
+	// TODO: Reasonable intial buffer size - just for testing now
 	Initialize(&GapBuffer, 2);
 
 	// TODO: Change the values to cover the entire pane
 	// TODO: Think about the pane range
 	GlobalCurrentPane.Begin = GapBuffer.Cursor;
-	GlobalCurrentPane.End = 8;
+	GlobalCurrentPane.End = 1024;
 
 	// COM stuff.
 	{
@@ -935,7 +949,7 @@ WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
 			DispatchMessage(&Message);
 		}
 
-		UpdateScrollPaneView(&GapBuffer, &GlobalCurrentPane);
+		//UpdateScrollPaneView(&GapBuffer, &GlobalCurrentPane);
 
 		// TODO: Lock to 60FPS.
 		GlobalRenderTarget->BeginDraw();
