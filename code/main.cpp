@@ -381,6 +381,13 @@ SetCursorToEndOfLine(gap_buffer* Buffer)
 	Pre(Buffer);
 	GapBufferInvariants(Buffer);
 
+	if (Buffer->Cursor >= Buffer->End - GapSize(Buffer))
+	{
+		return;
+	}
+
+	const bool IsEmptyline = GetCharAtCursor(Buffer) == '\n';
+
 	SetCursorToBeginOfNextLine(Buffer);
 	if (Buffer->Cursor == 0)
 	{
@@ -391,21 +398,25 @@ SetCursorToEndOfLine(gap_buffer* Buffer)
 		return;
 	}
 
-	// Stayed on the current line
+	// Only one line
 	if (GetCharAtIndex(Buffer, Buffer->Cursor-1) != '\n')	
+	{
+		// Go back once
+		MoveBackwards(Buffer);
+		return;
+	}
+
+	// More lines
+	// Either an empty or non-empty line
+
+	if (IsEmptyline)
 	{
 		MoveBackwards(Buffer);
 		return;
 	}
 
-	// Went to a new line
-	// Either an empty or non-empty line
-
-	if (GetCharAtCursor(Buffer) == '\n')
-	{
-		return;
-	}
-
+	// Non-empty line
+	// Go back twice
 	MoveBackwards(Buffer);
 	MoveBackwards(Buffer);
 
