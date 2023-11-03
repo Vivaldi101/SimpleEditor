@@ -84,12 +84,10 @@ global ID2D1HwndRenderTarget *GlobalRenderTarget;
 global IDWriteTextFormat *GlobalTextFormat;
 global ID2D1SolidColorBrush* GlobalTextBrush;
 
-global unsigned int GlobalPaneX;
-global unsigned int GlobalPaneY;
-
 typedef u64 buffer_position;
 typedef u64 cursor_position;
 
+__declspec(align(64))	// Align to cache line.
 struct gap_buffer
 {
 	buffer_position GapBegin;
@@ -97,8 +95,6 @@ struct gap_buffer
 	buffer_position End;	
 	cursor_position Cursor; // [Cursor, End). Logical cursor position.
 	byte *Memory;
-
-	//byte Reserved[24];	// Align to 64 byte cache line. TODO: Change this to match.
 };
 
 struct pane
@@ -142,9 +138,12 @@ GapBufferInvariants(gap_buffer *Buffer)
 }
 
 function void
-ScrollPaneInvariants(pane *Scroll)
+ScrollPaneInvariants(pane *Scroll, gap_buffer* Buffer)
 {
 	Invariant(Scroll->Begin < Scroll->End);
+
+	// TODO: Should probably be Scroll->End < BufferSize(Buffer)
+	Invariant(Scroll->End <= Buffer->End);
 }
 
 #else
@@ -596,7 +595,7 @@ DrawCursor(f32 CursorLeft, f32 CursorTop, f32 CursorRight, f32 CursorBottom, D2D
 }
 
 function void
-Draw(gap_buffer *Buffer, pane *Pane, f32 Left, f32 Top, f32 Width, f32 Height)
+Draw(gap_buffer *Buffer, pane *DrawPane, f32 Left, f32 Top, f32 Width, f32 Height)
 {
 	const size_t UtfBufferSize = 512;
 	byte Utf8[UtfBufferSize];
@@ -615,8 +614,8 @@ Draw(gap_buffer *Buffer, pane *Pane, f32 Left, f32 Top, f32 Width, f32 Height)
 	// TODO: Handle multibyte unicode advancements.
 
 	buffer_position UtfIndex = 0;
-	const cursor_position PaneEnd = Pane->End;
-	for (cursor_position PaneCursor = Pane->Begin; PaneCursor != PaneEnd; PaneCursor++)
+	const cursor_position PaneEnd = DrawPane->End;
+	for (cursor_position PaneCursor = DrawPane->Begin; PaneCursor != PaneEnd; PaneCursor++)
 	{
 		GapBufferInvariants(Buffer);
 
@@ -666,7 +665,7 @@ Draw(gap_buffer *Buffer, pane *Pane, f32 Left, f32 Top, f32 Width, f32 Height)
 	//DebugMessage("Cursor: %d\n", Buffer->Cursor);
 
 	// Draw end pane marker.
-	TextLayout->HitTestTextPosition((u32)Pane->End, FALSE, &CursorX, &CursorY, &CursorMetrics);
+	TextLayout->HitTestTextPosition((u32)DrawPane->End, FALSE, &CursorX, &CursorY, &CursorMetrics);
 	CursorLeft = CursorX + Layout.left;
 	CursorTop = CursorY + Layout.top;
 	CursorRight = CursorLeft + CursorMetrics.width;
@@ -689,37 +688,24 @@ UpdateScrollPaneView(gap_buffer *Buffer, pane *Scroll)
 	Pre(Scroll);
 
 	GapBufferInvariants(Buffer);
-	ScrollPaneInvariants(Scroll);
+	ScrollPaneInvariants(Scroll, Buffer);
 
-	// Before the view.
+	// Cursor must always be in the current scroll region: [begin, end)
 	if (Buffer->Cursor < Scroll->Begin)
 	{
-		const cursor_position Cursor = Buffer->Cursor;
+		return;
+		// TODO:
 	}
-	// After the view.
-	else if (Buffer->Cursor >= Scroll->End)
-	{
-		const cursor_position CurrentCursor = Buffer->Cursor;
-
-		SetCursorToBeginOfLine(Buffer);
-
-		cursor_position CurrentCursorDistance = CurrentCursor - Buffer->Cursor;
-
-		SetCursorToBeginOfPreviousLine(Buffer);
-
-		cursor_position PrevCursorDistance = CurrentCursor - Buffer->Cursor;
-
-		Post(PrevCursorDistance >= CurrentCursorDistance);
-
-		Scroll->Begin += (PrevCursorDistance - CurrentCursorDistance);
-		Buffer->Cursor = Scroll->End - 1;
-	}
-
-	// Cursor must always be in the current scroll region.
 	Post(Buffer->Cursor >= Scroll->Begin);
+
+	if (Buffer->Cursor >= Scroll->End)
+	{
+		return;
+		// TODO:
+	}
 	Post(Buffer->Cursor < Scroll->End);
 
-	ScrollPaneInvariants(Scroll);
+	ScrollPaneInvariants(Scroll, Buffer);
 	GapBufferInvariants(Buffer);
 }
 
@@ -784,6 +770,28 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 					else if (VkCode == '$')
 					{
 						SetCursorToEndOfLine(Buffer);
+					}
+					else if (VkCode == 'h')
+					{
+						// TODO: Should probably be GlobalCurrentPane.End < buffersize(buffer)
+						if (GlobalCurrentPane.Begin < GlobalCurrentPane.End && GlobalCurrentPane.End < Buffer->End)
+						{
+							++GlobalCurrentPane.End;
+							++GlobalCurrentPane.Begin;
+						}
+
+						ScrollPaneInvariants(&GlobalCurrentPane, Buffer);
+						//Invariant(begin++, end++, Scroll->Begin < Scroll->End);
+						//Invariant(Scroll->Begin + 1 < Scroll->End + 1);
+						//Invariant(Scroll->Begin < Scroll->End );
+					}
+					else if (VkCode == 'l')
+					{
+						if (GlobalCurrentPane.Begin > 0)
+						{
+							--GlobalCurrentPane.End;
+							--GlobalCurrentPane.Begin;
+						}
 					}
 					else
 					{
@@ -889,12 +897,12 @@ WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
 	gap_buffer GapBuffer = {};
 
 	// TODO: Reasonable intial buffer size - just for testing now
-	Initialize(&GapBuffer, 2);
+	Initialize(&GapBuffer, 5);
 
 	// TODO: Change the values to cover the entire pane
 	// TODO: Think about the pane range
 	GlobalCurrentPane.Begin = GapBuffer.Cursor;
-	GlobalCurrentPane.End = 1024;
+	GlobalCurrentPane.End = 5;
 
 	// COM stuff.
 	{
@@ -941,7 +949,7 @@ WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
 			DispatchMessage(&Message);
 		}
 
-		//UpdateScrollPaneView(&GapBuffer, &GlobalCurrentPane);
+		UpdateScrollPaneView(&GapBuffer, &GlobalCurrentPane);
 
 		// TODO: Lock to 60FPS.
 		GlobalRenderTarget->BeginDraw();
