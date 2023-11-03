@@ -1,0 +1,184 @@
+ 
+narrower -> wider
+stronger -> weaker
+
+x > 0 -> x >= 0  == x <= 0 || x >= 0 == T
+x >= 0 -> x > 0  == x < 0 || x > 0 == T iff x != 0, so not tautologically true, F
+
+if (x > 0)
+{
+   assert(x >= 0); // always true, x > 0 => x >= 0
+}
+
+if (x >= 0)
+{
+   //assert(x > 0) not true
+}
+
+
+narrow -> wide -> weak-wide -> weak-perfect -> perfect
+
+When composing functions:
+if going from wider to narrower: 
+test that the precondition of the next narrower contract implies the postcondition of the current contract
+
+if going from narrower to wider: 
+test that the postcondition of the next wider contract implies the postcondition of the current contract
+
+
+UniquePtr destructor postcondition
+// ((p -> free(p)) || !p) -> T
+struct Deleter
+{
+    // Wide
+    void operator()(void* p)
+    {
+        if (!p)
+        {
+            // !p
+            return;
+        }
+
+        assert(p);
+
+        // Narrow 
+        free(p);
+
+        // p -> free(p)
+    }
+};
+
+UniquePtr<T, Deleter> makeUnique(T* p)
+{
+    // p || !p
+
+    return UniquePtr{p};
+
+    // UniquePtr can be null or non-null
+    // p || !p
+    // T
+}
+
+sqrt(i) -> trySqrt(i)
+(i >= 0)    (i >= 0 || i < 0)
+
+
+// Wider to narrower control flow
+
+int getSquareRoot(int i)
+{
+    assert(i >= 0);
+
+    return ::sqrt(i);
+}
+
+optional<int> tryGetSquareRoot(int i)
+{
+    if (i < 0)
+    {
+        // i is negative...
+        return nullopt;
+    }
+
+    // i >= 0 => sqrt(i) is defined
+
+    return getSquareRoot(i);
+}
+
+
+// Narrower to wider control flow
+
+// Perfect
+bool isInBetweenZeroOrOne(float t)
+{
+    return t >= 0.0f && t <= 1.0f;
+}
+
+// Wide
+float lerpInBetween(float a, float b, float t)
+{
+    if (!isInBetweenZeroOrOne(t))
+    {
+        // Do extrapolate ops when t < 0.0f || t > 1.0f
+        return ...;
+    }
+
+    // always in range of (a, b)
+    // t >= 0.0 && t <= 1.0f => (1.0f-t)*a + t*b == (a, b)
+    // t >= 0.0 && t <= 1.0f => return == (a, b)
+
+    return (1.0f-t)*a + t*b;
+}
+
+
+/// Narrow to narrow composition. Non-commutative in general.
+
+void bar(int i)
+{
+    assert(i >= 0);
+    /// ...
+}
+
+void foo(int i)
+{
+    assert(i > 0);
+    /// ...
+}
+
+// Case 1
+void case1(int i)
+{
+    assert(i > 0);
+
+    foo(i);
+    bar(i);
+}
+
+// Case 2
+void case2(int i)
+{
+    assert(i >= 0);
+
+    bar(i);
+
+    if (i == 0)
+        return;
+
+    foo(i);
+}
+
+/// Wide to wide composition. Commutative if no side-effects.
+
+bool bar(int i)
+{
+    return (i >= 0);
+}
+
+bool foo(int i)
+{
+    return (i > 0);
+}
+
+// Case 1
+bool case1(int i)
+{
+    if (!foo(i))
+        return false;
+
+    if (!bar(i))
+        return false;
+
+    return true;
+}
+
+// Case 2
+bool case2(int i)
+{
+    if (!bar(i))
+        return false;
+
+    if (!foo(i))
+        return false;
+
+    return true;
+}
