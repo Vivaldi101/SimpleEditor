@@ -221,6 +221,7 @@ Initialize(gap_buffer *Buffer, size_t Size)
 	GapBufferInvariants(Buffer);
 }
 
+// TODO: Widen the contracts
 forceinline char
 GetCharAtIndex(gap_buffer* Buffer, cursor_position CursorIndex)
 {
@@ -246,6 +247,7 @@ GetCharAtIndex(gap_buffer* Buffer, cursor_position CursorIndex)
 	return Buffer->Memory[BufferIndex];
 }
 
+// TODO: Widen the contracts
 forceinline char
 GetCharAtCursor(gap_buffer *Buffer)
 {
@@ -375,51 +377,31 @@ SetCursorToBeginOfNextLine(gap_buffer* Buffer)
 	GapBufferInvariants(Buffer);
 }
 
+// TODO: This
 function void
 SetCursorToEndOfLine(gap_buffer* Buffer)
 {
 	Pre(Buffer);
 	GapBufferInvariants(Buffer);
 
-	if (Buffer->Cursor >= Buffer->End - GapSize(Buffer))
+	// One past last cursor position
+	if (Buffer->Cursor >= BufferSize(Buffer))
 	{
 		return;
 	}
-
-	const bool IsEmptyline = GetCharAtCursor(Buffer) == '\n';
-
-	SetCursorToBeginOfNextLine(Buffer);
-	if (Buffer->Cursor == 0)
+	while (GetCharAtCursor(Buffer) != '\n')
 	{
-		return;
-	}
-	if (Buffer->Cursor - 1 >= Buffer->End - GapSize(Buffer))
-	{
-		return;
-	}
-
-	// Only one line
-	if (GetCharAtIndex(Buffer, Buffer->Cursor-1) != '\n')	
-	{
-		// Go back once
-		MoveBackwards(Buffer);
-		return;
+		MoveForwards(Buffer);
+		GapBufferInvariants(Buffer);
+		if (Buffer->Cursor >= BufferSize(Buffer))
+		{
+			// One past last cursor position
+			break;
+		}
+		GapBufferInvariants(Buffer);
 	}
 
-	// More lines
-	// Either an empty or non-empty line
-
-	if (IsEmptyline)
-	{
-		MoveBackwards(Buffer);
-		return;
-	}
-
-	// Non-empty line
-	// Go back twice
-	MoveBackwards(Buffer);
-	MoveBackwards(Buffer);
-
+	Implies(Buffer->Cursor < BufferSize(Buffer), GetCharAtCursor(Buffer) == '\n');
 	GapBufferInvariants(Buffer);
 }
 
@@ -675,7 +657,7 @@ Draw(gap_buffer *Buffer, pane *Pane, f32 Left, f32 Top, f32 Width, f32 Height)
 
 	DrawCursor(CursorLeft, CursorTop, CursorRight, CursorBottom, CursorColor);
 
-	if (Buffer->Cursor < Buffer->End - GapSize(Buffer))
+	if (Buffer->Cursor < BufferSize(Buffer))
 	{
 		const char CursorChar = GetCharAtCursor(Buffer);
 		DebugMessage("Cursor char: %c\n", CursorChar);
@@ -802,7 +784,6 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 					else if (VkCode == '$')
 					{
 						SetCursorToEndOfLine(Buffer);
-						//SetCursorToBeginOfNextLine(Buffer);
 					}
 					else
 					{
