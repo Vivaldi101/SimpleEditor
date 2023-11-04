@@ -26,6 +26,8 @@ typedef uint16_t u16;
 typedef uint32_t u32;
 typedef uint64_t u64;
 
+typedef size_t usize;
+
 typedef u32 b32;
 typedef float f32;
 
@@ -182,7 +184,7 @@ DeInitialize(gap_buffer* Buffer)
 }
 
 function void 
-Initialize(gap_buffer *Buffer, size_t Size)
+Initialize(gap_buffer *Buffer, usize Size)
 {
 	Pre(Buffer);
 	Pre(Size > 1);
@@ -597,7 +599,7 @@ DrawCursor(f32 CursorLeft, f32 CursorTop, f32 CursorRight, f32 CursorBottom, D2D
 function void
 Draw(gap_buffer *Buffer, pane *DrawPane, f32 Left, f32 Top, f32 Width, f32 Height)
 {
-	const size_t UtfBufferSize = 512;
+	const usize UtfBufferSize = 512;
 	byte Utf8[UtfBufferSize];
 	ZeroMemory(Utf8, sizeof(Utf8));
 	WCHAR Utf16[UtfBufferSize];
@@ -896,13 +898,15 @@ WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
 {
 	gap_buffer GapBuffer = {};
 
+	const usize BufferSize = 5;
+
 	// TODO: Reasonable intial buffer size - just for testing now
-	Initialize(&GapBuffer, 5);
+	Initialize(&GapBuffer, BufferSize);
 
 	// TODO: Change the values to cover the entire pane
 	// TODO: Think about the pane range
 	GlobalCurrentPane.Begin = GapBuffer.Cursor;
-	GlobalCurrentPane.End = 5;
+	GlobalCurrentPane.End = BufferSize;
 
 	// COM stuff.
 	{
