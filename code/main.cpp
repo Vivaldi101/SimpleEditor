@@ -378,7 +378,6 @@ SetCursorToBeginOfNextLine(gap_buffer* Buffer)
 	GapBufferInvariants(Buffer);
 }
 
-// TODO: This
 function void
 SetCursorToEndOfLine(gap_buffer* Buffer)
 {
@@ -599,6 +598,7 @@ DrawCursor(f32 CursorLeft, f32 CursorTop, f32 CursorRight, f32 CursorBottom, D2D
 function void
 Draw(gap_buffer *Buffer, pane *DrawPane, f32 Left, f32 Top, f32 Width, f32 Height)
 {
+	// TODO: Fix sizes for buffers
 	const usize UtfBufferSize = 512;
 	byte Utf8[UtfBufferSize];
 	ZeroMemory(Utf8, sizeof(Utf8));
@@ -658,23 +658,48 @@ Draw(gap_buffer *Buffer, pane *DrawPane, f32 Left, f32 Top, f32 Width, f32 Heigh
 
 	DrawCursor(CursorLeft, CursorTop, CursorRight, CursorBottom, CursorColor);
 
+#if 0
 	if (Buffer->Cursor < BufferSize(Buffer))
 	{
 		const char CursorChar = GetCharAtCursor(Buffer);
 		DebugMessage("Cursor char: %c\n", CursorChar);
 	}
+#endif
+
+	if (DrawPane->Begin < BufferSize(Buffer))
+	{
+		const char CursorChar = GetCharAtIndex(Buffer, DrawPane->Begin);
+		DebugMessage("Draw begin char: %c\n", CursorChar);
+	}
 
 	//DebugMessage("Cursor: %d\n", Buffer->Cursor);
 
-	// Draw end pane marker.
-	TextLayout->HitTestTextPosition((u32)DrawPane->End, FALSE, &CursorX, &CursorY, &CursorMetrics);
-	CursorLeft = CursorX + Layout.left;
-	CursorTop = CursorY + Layout.top;
-	CursorRight = CursorLeft + CursorMetrics.width;
-	CursorBottom = CursorTop + CursorMetrics.height;
+	// Draw begin pane marker.
+	if (0)
+	{
+		f32 CursorX, CursorY;
+		DWRITE_HIT_TEST_METRICS CursorMetrics = {};
+		TextLayout->HitTestTextPosition((u32)DrawPane->Begin, FALSE, &CursorX, &CursorY, &CursorMetrics);
+		CursorLeft = CursorX + Layout.left;
+		CursorTop = CursorY + Layout.top;
+		CursorRight = CursorLeft + CursorMetrics.width;
+		CursorBottom = CursorTop + CursorMetrics.height;
 
-	//const D2D1_COLOR_F EndMarkerColor = {1.0f, 0.0f, 0.0f, 1.0f};
-	//DrawCursor(CursorLeft, CursorTop, CursorRight, CursorBottom, EndMarkerColor);
+		const D2D1_COLOR_F Color = { 0.0f, 1.0f, 0.0f, 1.0f };
+		DrawCursor(CursorLeft, CursorTop, CursorRight, CursorBottom, Color);
+	}
+	if (0)
+	{
+		// Draw end pane marker.
+		TextLayout->HitTestTextPosition((u32)DrawPane->End, FALSE, &CursorX, &CursorY, &CursorMetrics);
+		CursorLeft = CursorX + Layout.left;
+		CursorTop = CursorY + Layout.top;
+		CursorRight = CursorLeft + CursorMetrics.width;
+		CursorBottom = CursorTop + CursorMetrics.height;
+
+		const D2D1_COLOR_F Color = { 1.0f, 0.0f, 0.0f, 1.0f };
+		DrawCursor(CursorLeft, CursorTop, CursorRight, CursorBottom, Color);
+	}
 
 	TextLayout->Release();
 
@@ -696,14 +721,12 @@ UpdateScrollPaneView(gap_buffer *Buffer, pane *Scroll)
 	if (Buffer->Cursor < Scroll->Begin)
 	{
 		return;
-		// TODO:
 	}
 	Post(Buffer->Cursor >= Scroll->Begin);
 
 	if (Buffer->Cursor >= Scroll->End)
 	{
 		return;
-		// TODO:
 	}
 	Post(Buffer->Cursor < Scroll->End);
 
@@ -773,7 +796,7 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 					{
 						SetCursorToEndOfLine(Buffer);
 					}
-					else if (VkCode == 'h')
+					else if (VkCode == 'l')
 					{
 						// TODO: Should probably be GlobalCurrentPane.End < buffersize(buffer)
 						if (GlobalCurrentPane.Begin < GlobalCurrentPane.End && GlobalCurrentPane.End < Buffer->End)
@@ -787,12 +810,12 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 						//Invariant(Scroll->Begin + 1 < Scroll->End + 1);
 						//Invariant(Scroll->Begin < Scroll->End );
 					}
-					else if (VkCode == 'l')
+					else if (VkCode == 'h')
 					{
 						if (GlobalCurrentPane.Begin > 0)
 						{
-							--GlobalCurrentPane.End;
 							--GlobalCurrentPane.Begin;
+							--GlobalCurrentPane.End;
 						}
 					}
 					else
@@ -842,11 +865,40 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 						MoveForwards(Buffer);
 					}
 					break; 
-				case VK_UP:	
-					//MoveUp(Buffer); 
-					break; 
 				case VK_DOWN:	
-					//MoveDown(Buffer); 
+					{
+						// TODO: Scroll down by the amount it gets to next newline from scroll pane begin if exists
+						const usize ScrollCount = 0;
+						if (ScrollSize(&GlobalCurrentPane) > ScrollCount)
+						{
+							GlobalCurrentPane.Begin += ScrollCount;
+						}
+						ScrollPaneInvariants(&GlobalCurrentPane, Buffer);
+
+						// wp(begin += 5, begin < end)
+						// wp(begin + 5 < end)
+						// wp(5 < end - begin)
+					}
+					break; 
+				case VK_UP:	
+					{
+						// TODO: Scroll up by the amount it gets to next newline if exists
+						if (0 < GlobalCurrentPane.End - GlobalCurrentPane.Begin + 5 && GlobalCurrentPane.Begin >= 5)
+						{
+							GlobalCurrentPane.Begin -= 5;
+						}
+						ScrollPaneInvariants(&GlobalCurrentPane, Buffer);
+
+						// case1:
+						// wp(begin -= 5, begin < end && begin >= 0)
+						// wp(begin - 5 < end && begin - 5 >= 0)
+
+						// wp(begin < end + 5 && begin >= 5)
+
+						// wp(0 < end - begin + 5 && begin >= 5)
+
+						// wp(0 < end - begin + 5 && begin >= 5)
+					}
 					break; 
 				case VK_END:	
 					LoadTestFile(Buffer); 
@@ -865,6 +917,7 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 	return DefWindowProc(Window, Message, WParam, LParam);
 }
 
+#if 0
 u32 FindLastMatch(int* Buffer, u32 i, u32 n)
 {
 	u32 k = n-1;
@@ -892,13 +945,14 @@ u32 FindFirstMatch(int* Buffer, u32 i)
 
 	return k;
 }
+#endif
 
 int WINAPI 
 WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
 {
 	gap_buffer GapBuffer = {};
 
-	const usize BufferSize = 5;
+	const usize BufferSize = 9*1;
 
 	// TODO: Reasonable intial buffer size - just for testing now
 	Initialize(&GapBuffer, BufferSize);
@@ -953,7 +1007,7 @@ WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
 			DispatchMessage(&Message);
 		}
 
-		UpdateScrollPaneView(&GapBuffer, &GlobalCurrentPane);
+		//UpdateScrollPaneView(&GapBuffer, &GlobalCurrentPane);
 
 		// TODO: Lock to 60FPS.
 		GlobalRenderTarget->BeginDraw();
