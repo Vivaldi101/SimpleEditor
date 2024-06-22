@@ -31,6 +31,11 @@ typedef size_t usize;
 typedef u32 b32;
 typedef float f32;
 
+struct uint2
+{
+	u32 x, y;
+};
+
 #define global static
 #define local static
 #define function static
@@ -48,14 +53,15 @@ typedef float f32;
 #define Post(a) if(!(a)) Halt
 #define Invariant(a) if(!(a)) Halt
 #define Implies(a, b) (!(a) || (b))
+#define Iff(a, b) ((a) == (b))
 
 #define ForI(b, n) for(u32 i = (b); i < (n); ++i)
 #define ForJ(b, n) for(u32 j = (b); j < (n); ++j)
 #define ForK(b, n) for(u32 k = (b); k < (n); ++k)
 
-#define EQ(n, p) [&]() -> bool {for(size_t i__ = 0u; i__ < (n); ++i__) { if ((p)) { return true; } } return false; }()
-#define UQ(n, p) [&]() -> bool {for(size_t i__ = 0u; i__ < (n); ++i__) { if (!(p)) { return false; } } return true; }()
-#define CQ(n, p) [&]() -> size_t {size_t counter = 0; for(size_t i__ = 0u; i__ < (n); ++i__) { if ((p)) { ++counter; } } return counter; }()
+#define EQ(n, p) [&]() -> bool {for(usize i__ = 0u; i__ < (n); ++i__) { if ((p)) { return true; } } return false; }()
+#define UQ(n, p) [&]() -> bool {for(usize i__ = 0u; i__ < (n); ++i__) { if (!(p)) { return false; } } return true; }()
+#define CQ(n, p) [&]() -> usize {usize counter = 0; for(usize i__ = 0u; i__ < (n); ++i__) { if ((p)) { ++counter; } } return counter; }()
 
 #else
 
@@ -63,6 +69,7 @@ typedef float f32;
 #define Post(a)
 #define Invariant(a)
 #define Implies(a, b)
+#define Iff(a, b)
 
 #define EQ(a, n, p) 
 #define UQ(a, n, p)
@@ -86,22 +93,24 @@ global ID2D1HwndRenderTarget *GlobalRenderTarget;
 global IDWriteTextFormat *GlobalTextFormat;
 global ID2D1SolidColorBrush* GlobalTextBrush;
 
-typedef u64 buffer_position;
-typedef u64 cursor_position;
+typedef u64 buffer_position;	// Non-logical position
+typedef u64 cursor_position;	// Logical position
 
 __declspec(align(64))	// Align to cache line.
 struct gap_buffer
 {
 	buffer_position GapBegin;
-	buffer_position GapEnd;	// [GapBegin, GapEnd)
+	buffer_position GapEnd;	// [GapBegin, GapEnd) - half-open interval
 	buffer_position End;	
 	cursor_position Cursor; // [Cursor, End). Logical cursor position.
+	u32 WSCount;			// TODO: Put this into cold data
+	u32 WordCount;			// TODO: Put this into cold data
 	byte *Memory;
 };
 
 struct pane
 {
-	cursor_position Begin; // [Begin, End)
+	cursor_position Begin; // [Begin, End) - half-open interval
 	cursor_position End;
 };
 
@@ -114,8 +123,8 @@ global pane GlobalCurrentPane;
 
 #define IsGapFull(Buffer) (GapSize((Buffer)) == 1)
 #define BufferSize(Buffer) ((Buffer)->End - GapSize(Buffer))
-#define IsCursorInGapExcl(Buffer) ((Buffer)->GapBegin < (Buffer)->Cursor && (Buffer)->Cursor < (Buffer)->GapEnd)
-#define IsIndexInGapExcl(Buffer, Index) ((Buffer)->GapBegin < (Index) && (Index) < (Buffer)->GapEnd)
+//#define IsCursorInGapExcl(Buffer) ((Buffer)->GapBegin < (Buffer)->Cursor && (Buffer)->Cursor < (Buffer)->GapEnd)
+//#define IsIndexInGapExcl(Buffer, Index) ((Buffer)->GapBegin < (Index) && (Index) < (Buffer)->GapEnd)
 
 #ifdef _DEBUG
 function void
@@ -154,6 +163,9 @@ DebugMessage(const char* format, ...) { }
 
 function void
 GapBufferInvariants(gap_buffer *Buffer) { }
+
+function void
+ScrollPaneInvariants(pane* Scroll, gap_buffer* Buffer) {}
 #endif
 
 function void
@@ -222,18 +234,18 @@ Initialize(gap_buffer *Buffer, usize Size)
 	GapBufferInvariants(Buffer);
 }
 
-// TODO: Widen the contracts
+// TODO: Widen the contracts!!!!!!!!!
 forceinline char
 GetCharAtIndex(gap_buffer* Buffer, cursor_position CursorIndex)
 {
 	Pre(Buffer);
-	Pre(CursorIndex < Buffer->End - GapSize(Buffer));
+	Pre(CursorIndex <= Buffer->End - GapSize(Buffer));
 
 	GapBufferInvariants(Buffer);
 
 	buffer_position BufferIndex = CursorIndex < Buffer->GapBegin ? CursorIndex : CursorIndex + GapSize(Buffer);
 
-	Post(BufferIndex < Buffer->End);
+	Post(BufferIndex <= Buffer->End);
 
 	// wp(Index < Buffer->End)
 	// wp(Cursor < Buffer->End)
@@ -248,18 +260,19 @@ GetCharAtIndex(gap_buffer* Buffer, cursor_position CursorIndex)
 	return Buffer->Memory[BufferIndex];
 }
 
-// TODO: Widen the contracts
+// TODO: Widen the contracts? So that the callsite does not have to worry
+// TODO: Rename to indicate current state of cursor
 forceinline char
 GetCharAtCursor(gap_buffer *Buffer)
 {
 	Pre(Buffer);
-	Pre(Buffer->Cursor < Buffer->End - GapSize(Buffer));
+	Pre(Buffer->Cursor <= Buffer->End - GapSize(Buffer));
 
 	GapBufferInvariants(Buffer);
 
 	buffer_position Index = Buffer->Cursor < Buffer->GapBegin ? Buffer->Cursor : Buffer->Cursor + GapSize(Buffer);
 
-	Post(Index < Buffer->End);
+	Post(Index <= Buffer->End);
 
 	// wp(Index < Buffer->End)
 	// wp(Cursor < Buffer->End)
@@ -291,8 +304,6 @@ MoveForwards(gap_buffer *Buffer)
 	Buffer->GapBegin++;
 	Buffer->GapEnd++;
 
-	//Buffer->Memory[Buffer->GapEnd - 1] = 0;
-
 	Post(OldBufferSize == BufferSize(Buffer));
 
 	GapBufferInvariants(Buffer);
@@ -313,8 +324,6 @@ MoveBackwards(gap_buffer *Buffer)
 
 	Buffer->GapEnd--;
 	Buffer->GapBegin--;
-
-	//Buffer->Memory[Buffer->GapBegin] = 0;
 
 	Post(OldBufferSize == BufferSize(Buffer));
 
@@ -595,6 +604,92 @@ DrawCursor(f32 CursorLeft, f32 CursorTop, f32 CursorRight, f32 CursorBottom, D2D
 	GlobalTextBrush->SetColor(&OldColor);
 }
 
+function u32
+GetWhiteSpaceCount(gap_buffer* Buffer)
+{
+	u32 Result = 0;
+	const cursor_position OldCursor = Buffer->Cursor;
+
+	for (Buffer->Cursor = 0; Buffer->Cursor < Buffer->End - GapSize(Buffer); Buffer->Cursor++)
+	{
+		GapBufferInvariants(Buffer);
+		{
+			char c = GetCharAtCursor(Buffer);
+			isspace(c) ? Result++ : Result;
+		}
+		GapBufferInvariants(Buffer);
+	}
+
+	Buffer->Cursor = OldCursor;
+
+	return Result;
+}
+
+function u32
+GetWordCount(gap_buffer* Buffer, cursor_position Begin, cursor_position End)
+{
+	Pre(Buffer);
+	Pre(Begin < End - GapSize(Buffer));
+
+	u32 Result = 0;
+	bool HasWordStarted = false;
+
+	for (cursor_position Cursor = Begin; Cursor <= End; ++Cursor)
+	{
+		switch (GetCharAtIndex(Buffer, Cursor)) 
+		{
+		case '\0': case ' ': 
+		case '\t': case '\n': 
+		case '\r': case '\r\n':
+			if (HasWordStarted)
+			{
+				HasWordStarted = false;
+				Result++;
+			}
+			break;
+		default: HasWordStarted = true;
+		}
+	}
+
+	return Result;
+}
+
+function u32
+GetWordCountInLine(gap_buffer* Buffer)
+{
+	Pre(Buffer);
+	GapBufferInvariants(Buffer);
+
+	u32 Result = 0;
+
+	gap_buffer OldBuffer = *Buffer;
+
+	SetCursorToEndOfLine(Buffer);
+	cursor_position EndOfLineCursor = Buffer->Cursor;
+
+	SetCursorToBeginOfLine(Buffer);
+	cursor_position BeginOfLineCursor = Buffer->Cursor;
+
+	Result = (u32)(EndOfLineCursor - BeginOfLineCursor);
+
+	*Buffer = OldBuffer;
+
+	Result = GetWordCount(Buffer, BeginOfLineCursor, EndOfLineCursor);
+
+	GapBufferInvariants(Buffer);
+
+	return Result;
+}
+
+function void
+Layout(gap_buffer *Buffer, f32 Width, f32 Height)
+{
+	Pre(Buffer);
+	GapBufferInvariants(Buffer);
+	Buffer->WordCount = GetWordCountInLine(Buffer);
+	GapBufferInvariants(Buffer);
+}
+
 function void
 Draw(gap_buffer *Buffer, pane *DrawPane, f32 Left, f32 Top, f32 Width, f32 Height)
 {
@@ -624,6 +719,17 @@ Draw(gap_buffer *Buffer, pane *DrawPane, f32 Left, f32 Top, f32 Width, f32 Heigh
 		if (PaneCursor < Buffer->End - GapSize(Buffer))
 		{
 			Utf8[UtfIndex] = GetCharAtIndex(Buffer, PaneCursor);
+#if 0
+			if (UtfIndex == LineWidth-1)
+			{
+				const char c = Utf8[UtfIndex];
+				Utf8[UtfIndex] = '\n';
+				Utf8[UtfIndex+1] = c;
+				MultiByteToWideChar(CP_UTF8, 0, (LPCSTR)Utf8 + UtfIndex, 2, Utf16 + UtfIndex, sizeof(Utf16));
+				UtfIndex += 2;
+				continue;
+			}
+#endif
 			MultiByteToWideChar(CP_UTF8, 0, (LPCSTR)Utf8 + UtfIndex, 1, Utf16 + UtfIndex, sizeof(Utf16));
 			UtfIndex++;
 		}
@@ -654,25 +760,39 @@ Draw(gap_buffer *Buffer, pane *DrawPane, f32 Left, f32 Top, f32 Width, f32 Heigh
 	f32 CursorRight = CursorLeft + CursorMetrics.width;
 	f32 CursorBottom = CursorTop + CursorMetrics.height;
 
-	const D2D1_COLOR_F CursorColor = {1.0f, 1.0f, 0.0f, 1.0f};
+	D2D1_COLOR_F CursorColor = {1.0f, 0.0f, 0.0f, 1.0f};
 
-	DrawCursor(CursorLeft, CursorTop, CursorRight, CursorBottom, CursorColor);
+	if (CursorMetrics.width > 0 && CursorMetrics.height > 0)
+	{
+		DrawCursor(CursorLeft, CursorTop, CursorRight, CursorBottom, CursorColor);
+	}
+	else
+	{
+		CursorColor.b = 1.0f;
+		CursorColor.g = 1.0f;
+		DrawCursor(CursorLeft, CursorTop + 37, CursorLeft + 17, CursorTop + 35, CursorColor);
+	}
 
-#if 0
-	if (Buffer->Cursor < BufferSize(Buffer))
+	if (Buffer->Cursor < Buffer->End - GapSize(Buffer))
 	{
 		const char CursorChar = GetCharAtCursor(Buffer);
-		DebugMessage("Cursor char: %c\n", CursorChar);
-	}
-#endif
+		DebugMessage("Cursor char: %c\n", (CursorChar) ? CursorChar : '0');
+		//DebugMessage("\n");
 
+		DebugMessage("Cursor width: %d\n", (int)CursorRight - (int)CursorLeft);
+		DebugMessage("Cursor height: %d\n", (int)CursorBottom - (int)CursorTop);
+	}
+
+#if 0
 	if (DrawPane->Begin < BufferSize(Buffer))
 	{
 		const char CursorChar = GetCharAtIndex(Buffer, DrawPane->Begin);
 		DebugMessage("Draw begin char: %c\n", CursorChar);
 	}
+#endif
 
-	//DebugMessage("Cursor: %d\n", Buffer->Cursor);
+	//DebugMessage("Whitespace count: %u\n", Buffer->WSCount);
+	DebugMessage("Word count for the cursor line: %u\n", Buffer->WordCount);
 
 	// Draw begin pane marker.
 	if (0)
@@ -708,6 +828,7 @@ Draw(gap_buffer *Buffer, pane *DrawPane, f32 Left, f32 Top, f32 Width, f32 Heigh
 	GapBufferInvariants(Buffer);
 }
 
+// TODO: Fix cursor position in the pane scoll
 function void
 UpdateScrollPaneView(gap_buffer *Buffer, pane *Scroll)
 {
@@ -738,6 +859,23 @@ function void
 LoadTestFile(gap_buffer *Buffer)
 {
 	Pre(Buffer);
+}
+
+function uint2 
+GetEditorWindowSize(HWND WindowHandle)
+{
+	uint2 Result = {};
+
+	RECT rect;
+	if (GetClientRect(WindowHandle, &rect))
+	{
+		int width = rect.right - rect.left;
+		int height = rect.bottom - rect.top;
+
+		Result.x = width;
+		Result.y = height;
+	}
+	return Result;
 }
 
 LRESULT CALLBACK
@@ -796,8 +934,11 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 					{
 						SetCursorToEndOfLine(Buffer);
 					}
-					else if (VkCode == 'l')
+#if 0
+					else if (VkCode == 'h')
 					{
+						ScrollPaneInvariants(&GlobalCurrentPane, Buffer);
+						// Scroll forward
 						// TODO: Should probably be GlobalCurrentPane.End < buffersize(buffer)
 						if (GlobalCurrentPane.Begin < GlobalCurrentPane.End && GlobalCurrentPane.End < Buffer->End)
 						{
@@ -810,14 +951,18 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 						//Invariant(Scroll->Begin + 1 < Scroll->End + 1);
 						//Invariant(Scroll->Begin < Scroll->End );
 					}
-					else if (VkCode == 'h')
+					else if (VkCode == 'l')
 					{
+						ScrollPaneInvariants(&GlobalCurrentPane, Buffer);
+						// Scroll back
 						if (GlobalCurrentPane.Begin > 0)
 						{
 							--GlobalCurrentPane.Begin;
 							--GlobalCurrentPane.End;
 						}
+						ScrollPaneInvariants(&GlobalCurrentPane, Buffer);
 					}
+#endif
 					else
 					{
 						// Cleanup
@@ -868,7 +1013,8 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 				case VK_DOWN:	
 					{
 						// TODO: Scroll down by the amount it gets to next newline from scroll pane begin if exists
-						const usize ScrollCount = 0;
+						// TODO: Right now just scroll by fixed amount for testing
+						const usize ScrollCount = 6;
 						if (ScrollSize(&GlobalCurrentPane) > ScrollCount)
 						{
 							GlobalCurrentPane.Begin += ScrollCount;
@@ -883,9 +1029,9 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 				case VK_UP:	
 					{
 						// TODO: Scroll up by the amount it gets to next newline if exists
-						if (0 < GlobalCurrentPane.End - GlobalCurrentPane.Begin + 5 && GlobalCurrentPane.Begin >= 5)
+						if (0 < GlobalCurrentPane.End - GlobalCurrentPane.Begin + 6 && GlobalCurrentPane.Begin >= 6)
 						{
-							GlobalCurrentPane.Begin -= 5;
+							GlobalCurrentPane.Begin -= 6;
 						}
 						ScrollPaneInvariants(&GlobalCurrentPane, Buffer);
 
@@ -916,6 +1062,7 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 
 	return DefWindowProc(Window, Message, WParam, LParam);
 }
+
 
 #if 0
 u32 FindLastMatch(int* Buffer, u32 i, u32 n)
@@ -952,7 +1099,7 @@ WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
 {
 	gap_buffer GapBuffer = {};
 
-	const usize BufferSize = 9*1;
+	const usize BufferSize = 256;
 
 	// TODO: Reasonable intial buffer size - just for testing now
 	Initialize(&GapBuffer, BufferSize);
@@ -1007,12 +1154,14 @@ WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
 			DispatchMessage(&Message);
 		}
 
-		//UpdateScrollPaneView(&GapBuffer, &GlobalCurrentPane);
+		UpdateScrollPaneView(&GapBuffer, &GlobalCurrentPane);
 
 		// TODO: Lock to 60FPS.
 		GlobalRenderTarget->BeginDraw();
 		GlobalRenderTarget->Clear(D2D1::ColorF(D2D1::ColorF::LightBlue));
-		Draw(&GapBuffer, &GlobalCurrentPane, 0, 0, (f32)Width, (f32)Height);
+		uint2 WindowSize = GetEditorWindowSize(WindowHandle);
+		Layout(&GapBuffer, (f32)WindowSize.x, (f32)WindowSize.y);
+		Draw(&GapBuffer, &GlobalCurrentPane, 0, 0, (f32)WindowSize.x, (f32)WindowSize.y);
 		GlobalRenderTarget->EndDraw();
 	}
 
