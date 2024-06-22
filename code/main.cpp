@@ -141,9 +141,13 @@ DebugMessage(const char* format, ...)
 function void
 GapBufferInvariants(gap_buffer *Buffer)
 {
+	// Buffer index invariant
 	Invariant(Buffer->Cursor < Buffer->End);
+
+	// Logical index invariant
 	Invariant(Buffer->Cursor <= BufferSize(Buffer));
 
+	// Gap-buffer index invariant
 	Invariant(Buffer->GapBegin < Buffer->GapEnd);
 	Invariant(Buffer->GapEnd <= Buffer->End);
 }
@@ -239,13 +243,12 @@ forceinline char
 GetCharAtIndex(gap_buffer* Buffer, cursor_position CursorIndex)
 {
 	Pre(Buffer);
-	Pre(CursorIndex <= Buffer->End - GapSize(Buffer));
+	Pre(CursorIndex < Buffer->End - GapSize(Buffer));
+	Pre(CursorIndex != Buffer->End);
 
 	GapBufferInvariants(Buffer);
 
 	buffer_position BufferIndex = CursorIndex < Buffer->GapBegin ? CursorIndex : CursorIndex + GapSize(Buffer);
-
-	Post(BufferIndex <= Buffer->End);
 
 	// wp(Index < Buffer->End)
 	// wp(Cursor < Buffer->End)
@@ -257,6 +260,7 @@ GetCharAtIndex(gap_buffer* Buffer, cursor_position CursorIndex)
 
 	GapBufferInvariants(Buffer);
 
+	Post(BufferIndex < Buffer->End);
 	return Buffer->Memory[BufferIndex];
 }
 
@@ -267,12 +271,12 @@ GetCharAtCursor(gap_buffer *Buffer)
 {
 	Pre(Buffer);
 	Pre(Buffer->Cursor <= Buffer->End - GapSize(Buffer));
+	Pre(Buffer->Cursor != Buffer->End);
 
 	GapBufferInvariants(Buffer);
 
 	buffer_position Index = Buffer->Cursor < Buffer->GapBegin ? Buffer->Cursor : Buffer->Cursor + GapSize(Buffer);
 
-	Post(Index <= Buffer->End);
 
 	// wp(Index < Buffer->End)
 	// wp(Cursor < Buffer->End)
@@ -284,6 +288,7 @@ GetCharAtCursor(gap_buffer *Buffer)
 
 	GapBufferInvariants(Buffer);
 
+	Post(Index < Buffer->End);
 	return Buffer->Memory[Index];
 }
 
@@ -402,10 +407,10 @@ SetCursorToEndOfLine(gap_buffer* Buffer)
 	{
 		MoveForwards(Buffer);
 		GapBufferInvariants(Buffer);
+		// One past last cursor position
 		if (Buffer->Cursor >= BufferSize(Buffer))
 		{
-			// One past last cursor position
-			break;
+			return;
 		}
 		GapBufferInvariants(Buffer);
 	}
@@ -634,7 +639,7 @@ GetWordCount(gap_buffer* Buffer, cursor_position Begin, cursor_position End)
 	u32 Result = 0;
 	bool HasWordStarted = false;
 
-	for (cursor_position Cursor = Begin; Cursor <= End; ++Cursor)
+	for (cursor_position Cursor = Begin; Cursor != End; ++Cursor)
 	{
 		switch (GetCharAtIndex(Buffer, Cursor)) 
 		{
@@ -649,6 +654,11 @@ GetWordCount(gap_buffer* Buffer, cursor_position Begin, cursor_position End)
 			break;
 		default: HasWordStarted = true;
 		}
+	}
+	if (HasWordStarted)
+	{
+		HasWordStarted = false;
+		Result++;
 	}
 
 	return Result;
@@ -670,11 +680,9 @@ GetWordCountInLine(gap_buffer* Buffer)
 	SetCursorToBeginOfLine(Buffer);
 	cursor_position BeginOfLineCursor = Buffer->Cursor;
 
-	Result = (u32)(EndOfLineCursor - BeginOfLineCursor);
+	Result = GetWordCount(Buffer, BeginOfLineCursor, EndOfLineCursor);
 
 	*Buffer = OldBuffer;
-
-	Result = GetWordCount(Buffer, BeginOfLineCursor, EndOfLineCursor);
 
 	GapBufferInvariants(Buffer);
 
