@@ -1,9 +1,9 @@
-
+﻿
 #include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <Windows.h>
+#include <windows.h>
 #include <d2d1.h>
 #include <dwrite.h>
 #include <malloc.h>
@@ -30,6 +30,7 @@ typedef size_t usize;
 
 typedef u32 b32;
 typedef float f32;
+typedef double f64;
 
 struct uint2
 {
@@ -42,22 +43,22 @@ struct uint2
 
 #define forceinline 
 
-#define Cast(x, t) (t)(x)
-#define ZeroStruct(x) memset((x), 0, sizeof(*(x)));
-#define ArrayCount(a) sizeof((a)) / sizeof((*a))
-#define Halt __debugbreak();
+#define cast(x, t) (t)(x)
+#define zero_struct(x) memset((x), 0, sizeof(*(x)));
+#define array_count(a) sizeof((a)) / sizeof((*a))
+#define halt __debugbreak();
 
 #ifdef _DEBUG
 
-#define Pre(a) if(!(a)) Halt
-#define Post(a) if(!(a)) Halt
-#define Invariant(a) if(!(a)) Halt
-#define Implies(a, b) (!(a) || (b))
-#define Iff(a, b) ((a) == (b))
+#define pre(a) if(!(a)) halt
+#define post(a) if(!(a)) halt
+#define invariant(a) if(!(a)) halt
+#define implies(a, b) (!(a) || (b))
+#define iff(a, b) ((a) == (b))
 
-#define ForI(b, n) for(u32 i = (b); i < (n); ++i)
-#define ForJ(b, n) for(u32 j = (b); j < (n); ++j)
-#define ForK(b, n) for(u32 k = (b); k < (n); ++k)
+#define for_i(b, n) for(u32 i = (b); i < (n); ++i)
+#define for_j(b, n) for(u32 j = (b); j < (n); ++j)
+#define for_k(b, n) for(u32 k = (b); k < (n); ++k)
 
 #define EQ(n, p) [&]() -> bool {for(usize i__ = 0u; i__ < (n); ++i__) { if ((p)) { return true; } } return false; }()
 #define UQ(n, p) [&]() -> bool {for(usize i__ = 0u; i__ < (n); ++i__) { if (!(p)) { return false; } } return true; }()
@@ -65,969 +66,1035 @@ struct uint2
 
 #else
 
-#define Pre(a)
-#define Post(a)
-#define Invariant(a)
-#define Implies(a, b)
-#define Iff(a, b)
+#define pre(a)
+#define post(a)
+#define invariant(a)
+#define implies(a, b)
+#define iff(a, b)
 
 #define EQ(a, n, p) 
 #define UQ(a, n, p)
 #define CQ(n, p)
 
-#define ForI(n) 
-#define ForJ(n) 
-#define ForK(n) 
+#define for_i(n) 
+#define for_j(n) 
+#define for_k(n) 
 
 #endif
 
-global bool GlobalQuit;
-
-/////////////////////////
-// TODO: Remove the globals.
-/////////////////////////
+global bool global_quit;
 
 global ID2D1Factory *GlobalD2D1Factory;
-global IDWriteFactory *GlobalWriteFactory;
-global ID2D1HwndRenderTarget *GlobalRenderTarget;
-global IDWriteTextFormat *GlobalTextFormat;
-global ID2D1SolidColorBrush* GlobalTextBrush;
+global IDWriteFactory *global_write_factory;
+global ID2D1HwndRenderTarget *global_render_target;
+global IDWriteTextFormat *global_text_format;
+global ID2D1SolidColorBrush* global_text_brush;
+global IDWriteTextLayout* global_text_layout;
 
-typedef u64 buffer_position;	// Non-logical position
-typedef u64 cursor_position;	// Logical position
+typedef u64 buffer_position;	// non-logical position
+typedef u64 cursor_position;	// logical position
 
-__declspec(align(64))	// Align to cache line.
+__declspec(align(64))	// align to cache line.
 struct gap_buffer
 {
-	buffer_position GapBegin;
-	buffer_position GapEnd;	// [GapBegin, GapEnd) - half-open interval
-	buffer_position End;	
-	cursor_position Cursor; // [Cursor, End). Logical cursor position.
-	u32 WSCount;			// TODO: Put this into cold data
-	u32 WordCount;			// TODO: Put this into cold data
-	byte *Memory;
+	buffer_position gap_begin;
+	buffer_position gap_end;	// [gap_begin, gap_end) - half-open interval
+	buffer_position end;	
+	cursor_position cursor; // [cursor, end). logical cursor position.
+	u32 ws_count;			// TODO: put this into cold data
+	u32 word_count;			// TODO: put this into cold data
+	byte *memory;
 };
 
 struct pane
 {
-	cursor_position Begin; // [Begin, End) - half-open interval
-	cursor_position End;
+	cursor_position begin; // [Begin, end) - half-open interval
+	cursor_position end;
 };
 
-global pane GlobalCurrentPane;
+global pane global_current_pane;
 
-// Post and precondition for gap size staying same.
+// post and precondition for gap size staying same.
 
-#define GapSize(Buffer) ((Buffer)->GapEnd - (Buffer)->GapBegin)
-#define ScrollSize(Scroll) ((Scroll)->End - (Scroll)->Begin)
+#define gap_size(buffer) ((buffer)->gap_end - (buffer)->gap_begin)
+#define scroll_size(scroll) ((scroll)->end - (scroll)->begin)
 
-#define IsGapFull(Buffer) (GapSize((Buffer)) == 1)
-#define BufferSize(Buffer) ((Buffer)->End - GapSize(Buffer))
-//#define IsCursorInGapExcl(Buffer) ((Buffer)->GapBegin < (Buffer)->Cursor && (Buffer)->Cursor < (Buffer)->GapEnd)
-//#define IsIndexInGapExcl(Buffer, Index) ((Buffer)->GapBegin < (Index) && (Index) < (Buffer)->GapEnd)
+#define is_gap_full(buffer) (gap_size((buffer)) == 1)
+#define buffer_size(buffer) ((buffer)->end - gap_size(buffer))
+//#define is_cursor_in_gap_excl(buffer) ((buffer)->gap_begin < (buffer)->cursor && (buffer)->cursor < (buffer)->gap_end)
+//#define is_index_in_gap_excl(buffer, index) ((buffer)->gap_begin < (index) && (index) < (buffer)->gap_end)
 
 #ifdef _DEBUG
 function void
-DebugMessage(const char* format, ...)
+debug_message(const char* format, ...)
 {
-	char Temp[1024];
-	va_list Args;
-	va_start(Args, format);
-	wvsprintfA(Temp, format, Args);
-	va_end(Args);
-	OutputDebugStringA(Temp);
+	char temp[1024];
+	va_list args;
+	va_start(args, format);
+	//vswprintf(temp, format, args);
+	va_end(args);
+	OutputDebugStringA(temp);
 }
 
 function void
-GapBufferInvariants(gap_buffer *Buffer)
+gap_buffer_invariants(gap_buffer *buffer)
 {
-	// Buffer index invariant
-	Invariant(Buffer->Cursor < Buffer->End);
+	// buffer index invariant
+	invariant(buffer->cursor < buffer->end);
 
-	// Logical index invariant
-	Invariant(Buffer->Cursor <= BufferSize(Buffer));
+	// logical index invariant
+	invariant(buffer->cursor <= buffer_size(buffer));
 
-	// Gap-buffer index invariant
-	Invariant(Buffer->GapBegin < Buffer->GapEnd);
-	Invariant(Buffer->GapEnd <= Buffer->End);
+	// gap-buffer index invariant
+	invariant(buffer->gap_begin < buffer->gap_end);
+	invariant(buffer->gap_end <= buffer->end);
 }
 
 function void
-ScrollPaneInvariants(pane *Scroll, gap_buffer* Buffer)
+scroll_pane_invariants(pane *scroll, gap_buffer* buffer)
 {
-	Invariant(Scroll->Begin < Scroll->End);
+	invariant(scroll->begin < scroll->end);
 
-	// TODO: Should probably be Scroll->End < BufferSize(Buffer)
-	Invariant(Scroll->End <= Buffer->End);
+	// TODO: should probably be scroll->end < buffer_size(buffer)
+	invariant(scroll->end <= buffer->end);
 }
 
 #else
 function void
-DebugMessage(const char* format, ...) { }
+debug_message(const char* format, ...) { }
 
 function void
-GapBufferInvariants(gap_buffer *Buffer) { }
+gap_buffer_invariants(gap_buffer *buffer) { }
 
 function void
-ScrollPaneInvariants(pane* Scroll, gap_buffer* Buffer) {}
+scroll_pane_invariants(pane* scroll, gap_buffer* buffer) {}
 #endif
 
-function void
-MoveBytes(byte *Destination, byte *Source, u64 Size)
+// TODO: same case as the rest
+static s64 global_game_time_residual;
+static s64 global_perf_counter_frequency;
+
+static s64 clock_query_counter()
 {
-	MoveMemory(Destination, Source, Size);
+	LARGE_INTEGER result;
+	QueryPerformanceCounter(&result);
+
+	return result.QuadPart;
+}
+
+static LARGE_INTEGER clock_query_frequency()
+{
+	LARGE_INTEGER result;
+	QueryPerformanceFrequency(&result);
+
+	global_perf_counter_frequency = result.QuadPart;
+
+	return result;
+}
+
+static f64 clock_seconds_elapsed(s64 start, s64 end)
+{
+	assert(global_perf_counter_frequency);
+
+	return ((f64)end - (f64)start) / (f64)global_perf_counter_frequency;
+}
+
+static f64 clock_time_to_counter(f64 time)
+{
+	return (f64)global_perf_counter_frequency * time;
+}
+
+static void frame_sync(f64 frame_delta)
+{
+	int num_frames_to_run = 0;
+	const s64 counter_delta = (s64)(clock_time_to_counter(frame_delta) + .5f);
+
+	for (;;)
+	{
+		const s64 current_counter = clock_query_counter();
+		static s64 last_counter = 0;
+		if (last_counter == 0)
+			last_counter = current_counter;
+
+		s64 delta_counter = current_counter - last_counter;
+		last_counter = current_counter;
+
+		global_game_time_residual += delta_counter;
+
+		for (;;)
+		{
+			// how much to wait before running the next frame
+			if (global_game_time_residual < counter_delta)
+				break;
+			global_game_time_residual -= counter_delta;
+			num_frames_to_run++;
+		}
+		if (num_frames_to_run > 0)
+			break;
+
+		Sleep(0);
+	}
 }
 
 function void
-SetBytes(byte *Destination, int Value, u64 Size)
+move_bytes(byte *destination, byte *source, u64 size)
 {
-	FillMemory(Destination, Size, Value);
+	MoveMemory(destination, source, size);
 }
 
 function void
-CopyBytes(byte *Destination, byte *Source, u64 Size)
+set_bytes(byte *destination, int value, u64 size)
 {
-	CopyMemory(Destination, Source, Size);
+	FillMemory(destination, size, value);
+}
+
+function void
+copy_bytes(byte *destination, byte *source, u64 size)
+{
+	CopyMemory(destination, source, size);
 }
 
 function void 
-DeInitialize(gap_buffer* Buffer)
+de_initialize(gap_buffer* buffer)
 {
-	GapBufferInvariants(Buffer);
-	Pre(Buffer);
+	gap_buffer_invariants(buffer);
+	pre(buffer);
 
-	HeapFree(GetProcessHeap(), HEAP_ZERO_MEMORY, Buffer->Memory);
+	HeapFree(GetProcessHeap(), HEAP_ZERO_MEMORY, buffer->memory);
 }
 
 function void 
-Initialize(gap_buffer *Buffer, usize Size)
+initialize(gap_buffer *buffer, usize size)
 {
-	Pre(Buffer);
-	Pre(Size > 1);
+	pre(buffer);
+	pre(size > 1);
 
-	// Initialize the invariants.
-	Buffer->GapBegin = 0;
-	Buffer->Cursor = Buffer->GapBegin;
-	Buffer->Memory = Cast(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, Size), byte*);
-	Buffer->End = Size;
-	Buffer->GapEnd = Buffer->End;
+	// initialize the invariants.
+	buffer->gap_begin = 0;
+	buffer->cursor = buffer->gap_begin;
+	buffer->memory = cast(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, size), byte*);
+	buffer->end = size;
+	buffer->gap_end = buffer->end;
 
-	Post(!IsGapFull(Buffer));
+	post(!is_gap_full(buffer));
 
-	// wp(S, GapEnd - GapBegin != 1)
-	// wp(S, End - GapBegin != 1)
-	// wp(S, Size - GapBegin != 1)
-	// wp(S, Size - 0 != 1)
-	// (Size - 0 != 1)
-	// Size != 1
+	// wp(S, gap_end - gap_begin != 1)
+	// wp(S, end - gap_begin != 1)
+	// wp(S, size - gap_begin != 1)
+	// wp(S, size - 0 != 1)
+	// (size - 0 != 1)
+	// size != 1
 
-	Post(Buffer->Memory);
+	post(buffer->memory);
 
-	Post(GapSize(Buffer) == Size);
-	Post(BufferSize(Buffer) == 0);
+	post(gap_size(buffer) == size);
+	post(buffer_size(buffer) == 0);
 
-	Post(((2 * BufferSize(Buffer)) - Buffer->GapBegin) != 1);
+	post(((2 * buffer_size(buffer)) - buffer->gap_begin) != 1);
 
-	// wp(Buffer->Cursor < Buffer->End);
-	// wp(Buffer->Cursor < Size);
-	// wp(0 < Size);
-	// (0 < Size);
-	// (0 < Size) && (Size != 1);
-	// => Size > 1
+	// wp(buffer->cursor < buffer->end);
+	// wp(buffer->cursor < size);
+	// wp(0 < size);
+	// (0 < size);
+	// (0 < size) && (size != 1);
+	// => size > 1
 
-	GapBufferInvariants(Buffer);
+	gap_buffer_invariants(buffer);
 }
 
-// TODO: Widen the contracts!!!!!!!!!
+// TODO: widen the contracts!!!!!!!!!
 forceinline char
-GetCharAtIndex(gap_buffer* Buffer, cursor_position CursorIndex)
+get_char_at_index(gap_buffer* buffer, cursor_position cursor_index)
 {
-	Pre(Buffer);
-	Pre(CursorIndex < Buffer->End - GapSize(Buffer));
-	Pre(CursorIndex != Buffer->End);
+	pre(buffer);
+	pre(cursor_index < buffer->end - gap_size(buffer));
+	pre(cursor_index != buffer->end);
 
-	GapBufferInvariants(Buffer);
+	gap_buffer_invariants(buffer);
 
-	buffer_position BufferIndex = CursorIndex < Buffer->GapBegin ? CursorIndex : CursorIndex + GapSize(Buffer);
+	buffer_position buffer_index = cursor_index < buffer->gap_begin ? cursor_index : cursor_index + gap_size(buffer);
 
-	// wp(Index < Buffer->End)
-	// wp(Cursor < Buffer->End)
-	// (Cursor < Buffer->End)
+	// wp(index < buffer->end)
+	// wp(cursor < buffer->end)
+	// (cursor < buffer->end)
 
-	// wp(Index < Buffer->End)
-	// wp(Cursor + GapSize < Buffer->End)
-	// wp(Cursor < Buffer->End - GapSize)
+	// wp(index < buffer->end)
+	// wp(cursor + gap_size < buffer->end)
+	// wp(cursor < buffer->end - gap_size)
 
-	GapBufferInvariants(Buffer);
+	gap_buffer_invariants(buffer);
 
-	Post(BufferIndex < Buffer->End);
-	return Buffer->Memory[BufferIndex];
+	post(buffer_index < buffer->end);
+	return buffer->memory[buffer_index];
 }
 
-// TODO: Widen the contracts? So that the callsite does not have to worry
-// TODO: Rename to indicate current state of cursor
+// TODO: widen the contracts? so that the callsite does not have to worry
+// TODO: rename to indicate current state of cursor
 forceinline char
-GetCharAtCursor(gap_buffer *Buffer)
+get_char_at_cursor(gap_buffer *buffer)
 {
-	Pre(Buffer);
-	Pre(Buffer->Cursor <= Buffer->End - GapSize(Buffer));
-	Pre(Buffer->Cursor != Buffer->End);
+	pre(buffer);
+	pre(buffer->cursor <= buffer->end - gap_size(buffer));
+	pre(buffer->cursor != buffer->end);
 
-	GapBufferInvariants(Buffer);
+	gap_buffer_invariants(buffer);
 
-	buffer_position Index = Buffer->Cursor < Buffer->GapBegin ? Buffer->Cursor : Buffer->Cursor + GapSize(Buffer);
+	buffer_position index = buffer->cursor < buffer->gap_begin ? buffer->cursor : buffer->cursor + gap_size(buffer);
 
 
-	// wp(Index < Buffer->End)
-	// wp(Cursor < Buffer->End)
-	// (Cursor < Buffer->End)
+	// wp(index < buffer->end)
+	// wp(cursor < buffer->end)
+	// (cursor < buffer->end)
 
-	// wp(Index < Buffer->End)
-	// wp(Cursor + GapSize < Buffer->End)
-	// wp(Cursor < Buffer->End - GapSize)
+	// wp(index < buffer->end)
+	// wp(cursor + gap_size < buffer->end)
+	// wp(cursor < buffer->end - gap_size)
 
-	GapBufferInvariants(Buffer);
+	gap_buffer_invariants(buffer);
 
-	Post(Index < Buffer->End);
-	return Buffer->Memory[Index];
+	post(index < buffer->end);
+	return buffer->memory[index];
 }
 
 function void
-MoveForwards(gap_buffer *Buffer)
+move_forwards(gap_buffer *buffer)
 {
-	Pre(Buffer);
-	Pre(Buffer->Cursor < BufferSize(Buffer));
+	pre(buffer);
+	pre(buffer->cursor < buffer_size(buffer));
 
-	GapBufferInvariants(Buffer);
+	gap_buffer_invariants(buffer);
 
-	const buffer_position OldBufferSize = BufferSize(Buffer);
+	const buffer_position old_buffer_size = buffer_size(buffer);
 
-	MoveBytes(Buffer->Memory + Buffer->GapBegin, Buffer->Memory + Buffer->GapEnd, 1);
+	move_bytes(buffer->memory + buffer->gap_begin, buffer->memory + buffer->gap_end, 1);
 
-	Buffer->Cursor++;
+	buffer->cursor++;
 
-	Buffer->GapBegin++;
-	Buffer->GapEnd++;
+	buffer->gap_begin++;
+	buffer->gap_end++;
 
-	Post(OldBufferSize == BufferSize(Buffer));
+	post(old_buffer_size == buffer_size(buffer));
 
-	GapBufferInvariants(Buffer);
+	gap_buffer_invariants(buffer);
 }
 
 function void
-MoveBackwards(gap_buffer *Buffer)
+move_backwards(gap_buffer *buffer)
 {
-	Pre(Buffer);
-	Pre(Buffer->Cursor != 0);
+	pre(buffer);
+	pre(buffer->cursor != 0);
 
-	GapBufferInvariants(Buffer);
+	gap_buffer_invariants(buffer);
 
-	const buffer_position OldBufferSize = BufferSize(Buffer);
+	const buffer_position old_buffer_size = buffer_size(buffer);
 
-	MoveBytes(Buffer->Memory + Buffer->GapEnd - 1, Buffer->Memory + Buffer->GapBegin - 1, 1);
-	Buffer->Cursor--;
+	move_bytes(buffer->memory + buffer->gap_end - 1, buffer->memory + buffer->gap_begin - 1, 1);
+	buffer->cursor--;
 
-	Buffer->GapEnd--;
-	Buffer->GapBegin--;
+	buffer->gap_end--;
+	buffer->gap_begin--;
 
-	Post(OldBufferSize == BufferSize(Buffer));
+	post(old_buffer_size == buffer_size(buffer));
 
-	GapBufferInvariants(Buffer);
+	gap_buffer_invariants(buffer);
 }
 
 function void
-SetCursorToBeginOfLine(gap_buffer* Buffer)
+set_cursor_to_begin_of_line(gap_buffer* buffer)
 {
-	Pre(Buffer);
-	GapBufferInvariants(Buffer);
+	pre(buffer);
+	gap_buffer_invariants(buffer);
 
 	do
 	{
-		GapBufferInvariants(Buffer);
-		if (Buffer->Cursor == 0)
+		gap_buffer_invariants(buffer);
+		if (buffer->cursor == 0)
 		{
 			return;
 		}
-		MoveBackwards(Buffer);
-	} while (GetCharAtCursor(Buffer) != '\n');
+		move_backwards(buffer);
+	} while (get_char_at_cursor(buffer) != '\n');
 
-	Post(GetCharAtCursor(Buffer) == '\n');
+	post(get_char_at_cursor(buffer) == '\n');
 
-	MoveForwards(Buffer);
+	move_forwards(buffer);
 
-	GapBufferInvariants(Buffer);
+	gap_buffer_invariants(buffer);
 }
 
 function void
-SetCursorToBeginOfNextLine(gap_buffer* Buffer)
+set_cursor_to_begin_of_next_line(gap_buffer* buffer)
 {
-	Pre(Buffer);
-	GapBufferInvariants(Buffer);
+	pre(buffer);
+	gap_buffer_invariants(buffer);
 
-	if (Buffer->Cursor >= Buffer->End - GapSize(Buffer))
+	if (buffer->cursor >= buffer->end - gap_size(buffer))
 	{
 		return;
 	}
 
-	while (GetCharAtCursor(Buffer) != '\n')
+	while (get_char_at_cursor(buffer) != '\n')
 	{
-		GapBufferInvariants(Buffer);
-		if (Buffer->Cursor >= BufferSize(Buffer))
+		gap_buffer_invariants(buffer);
+		if (buffer->cursor >= buffer_size(buffer))
 		{
 			return;
 		}
-		MoveForwards(Buffer);
-		if (Buffer->Cursor >= Buffer->End - GapSize(Buffer))
+		move_forwards(buffer);
+		if (buffer->cursor >= buffer->end - gap_size(buffer))
 		{
 			return;
 		}
 	}
 
-	Post(GetCharAtCursor(Buffer) == '\n');
+	post(get_char_at_cursor(buffer) == '\n');
 
-	MoveForwards(Buffer);
+	move_forwards(buffer);
 
-	SetCursorToBeginOfLine(Buffer);
+	set_cursor_to_begin_of_line(buffer);
 
-	GapBufferInvariants(Buffer);
+	gap_buffer_invariants(buffer);
 }
 
 function void
-SetCursorToEndOfLine(gap_buffer* Buffer)
+set_cursor_to_end_of_line(gap_buffer* buffer)
 {
-	Pre(Buffer);
-	GapBufferInvariants(Buffer);
+	pre(buffer);
+	gap_buffer_invariants(buffer);
 
-	// One past last cursor position
-	if (Buffer->Cursor >= BufferSize(Buffer))
+	// one past last cursor position
+	if (buffer->cursor >= buffer_size(buffer))
 	{
 		return;
 	}
-	while (GetCharAtCursor(Buffer) != '\n')
+	while (get_char_at_cursor(buffer) != '\n')
 	{
-		MoveForwards(Buffer);
-		GapBufferInvariants(Buffer);
-		// One past last cursor position
-		if (Buffer->Cursor >= BufferSize(Buffer))
+		move_forwards(buffer);
+		gap_buffer_invariants(buffer);
+		// one past last cursor position
+		if (buffer->cursor >= buffer_size(buffer))
 		{
 			return;
 		}
-		GapBufferInvariants(Buffer);
+		gap_buffer_invariants(buffer);
 	}
 
-	Implies(Buffer->Cursor < BufferSize(Buffer), GetCharAtCursor(Buffer) == '\n');
-	GapBufferInvariants(Buffer);
+	implies(buffer->cursor < buffer_size(buffer), get_char_at_cursor(buffer) == '\n');
+	gap_buffer_invariants(buffer);
 }
 
 function void
-SetCursorToBeginOfPreviousLine(gap_buffer* Buffer)
+set_cursor_to_begin_of_previous_line(gap_buffer* buffer)
 {
-	Pre(Buffer);
-	GapBufferInvariants(Buffer);
+	pre(buffer);
+	gap_buffer_invariants(buffer);
 
-	SetCursorToBeginOfLine(Buffer);
+	set_cursor_to_begin_of_line(buffer);
 
-	if (Buffer->Cursor != 0)
+	if (buffer->cursor != 0)
 	{
-		MoveBackwards(Buffer);
+		move_backwards(buffer);
 	}
 
-	SetCursorToBeginOfLine(Buffer);
+	set_cursor_to_begin_of_line(buffer);
 
-	GapBufferInvariants(Buffer);
+	gap_buffer_invariants(buffer);
 }
 
 function bool
-TryInsertCharacter(gap_buffer *Buffer, char Char)
+try_insert_character(gap_buffer *buffer, char c)
 {
-	Pre(Buffer);
-	Pre(Buffer->End * 2 > 1 + Buffer->GapBegin);
+	pre(buffer);
+	pre(buffer->end * 2 > 1 + buffer->gap_begin);
 
-	GapBufferInvariants(Buffer);
+	gap_buffer_invariants(buffer);
 
-	if(IsGapFull(Buffer))
+	if(is_gap_full(buffer))
 	{
-		const buffer_position OldEnd = Buffer->End;
-		const buffer_position OldGapEnd = Buffer->GapEnd;
-		const buffer_position OldGapBegin = Buffer->GapBegin;
-		const buffer_position BufferRemnants = OldEnd - OldGapEnd;
+		const buffer_position old_end = buffer->end;
+		const buffer_position old_gap_end = buffer->gap_end;
+		const buffer_position old_gap_begin = buffer->gap_begin;
+		const buffer_position buffer_remnants = old_end - old_gap_end;
 
-		const buffer_position NewBufferSize = OldEnd * 2 + BufferRemnants;
+		const buffer_position new_buffer_size = old_end * 2 + buffer_remnants;
 
-		const void* RealloctedMemory = Cast(HeapReAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, Buffer->Memory, NewBufferSize), byte*);
+		const void* reallocted_memory = cast(HeapReAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, buffer->memory, new_buffer_size), byte*);
 
-		if (!RealloctedMemory)
+		if (!reallocted_memory)
 		{
-			DeInitialize(Buffer);
+			de_initialize(buffer);
 
 			return false;
 		}
 
-		Buffer->Memory = (byte*)RealloctedMemory;
+		buffer->memory = (byte*)reallocted_memory;
 
-		Buffer->End = NewBufferSize;
-		Buffer->GapEnd = Buffer->End - BufferRemnants;
+		buffer->end = new_buffer_size;
+		buffer->gap_end = buffer->end - buffer_remnants;
 
-		// Shuffle the characters after the previous gap after new gap end.
-		MoveBytes(Buffer->Memory + Buffer->GapEnd, Buffer->Memory + OldGapEnd, BufferRemnants);
+		// shuffle the characters after the previous gap after new gap end.
+		move_bytes(buffer->memory + buffer->gap_end, buffer->memory + old_gap_end, buffer_remnants);
 
-		// New gap not full anymore.
-		// wp(S, GapSize((Buffer)) != 1)
-		// wp(S, (GapEnd - GapBegin) != 1)
+		// new gap not full anymore.
+		// wp(S, gap_size((buffer)) != 1)
+		// wp(S, (gap_end - gap_begin) != 1)
 
-		// wp(S, (NewBufferSize - BufferRemnants - GapBegin) != 1)
-		// wp(S, (OldEnd * 2 + BufferRemnants - BufferRemnants - GapBegin) != 1)
-		// wp(S, (OldEnd * 2 + OldEnd - OldGapEnd - (OldEnd - OldGapEnd) - GapBegin) != 1)
-		// wp(S, (OldEnd * 2 + OldEnd - OldGapEnd - OldEnd + OldGapEnd - GapBegin) != 1)
+		// wp(S, (new_buffer_size - buffer_remnants - gap_begin) != 1)
+		// wp(S, (old_end * 2 + buffer_remnants - buffer_remnants - gap_begin) != 1)
+		// wp(S, (old_end * 2 + old_end - old_gap_end - (old_end - old_gap_end) - gap_begin) != 1)
+		// wp(S, (old_end * 2 + old_end - old_gap_end - old_end + old_gap_end - gap_begin) != 1)
 
-		// wp(S, (OldEnd * 2 - GapBegin) != 1)
-		// wp(S, OldEnd * 2 - GapBegin != 1)
-		// wp(S, OldEnd * 2 != 1 + GapBegin)	== precond
+		// wp(S, (old_end * 2 - gap_begin) != 1)
+		// wp(S, old_end * 2 - gap_begin != 1)
+		// wp(S, old_end * 2 != 1 + gap_begin)	== precond
 
-		// wp(S, OldEnd * 2 != 1 + GapBegin)   == precond
+		// wp(S, old_end * 2 != 1 + gap_begin)   == precond
 
-		// wp(S, GapEnd != 1 + GapBegin) == IsGapFull
+		// wp(S, gap_end != 1 + gap_begin) == is_gap_full
 
-		// wp(S, GapEnd != OldEnd * 2) == ?
+		// wp(S, gap_end != old_end * 2) == ?
 
-		Post(!IsGapFull(Buffer));
+		post(!is_gap_full(buffer));
 
-		// Make sure old buffer remnants fit after the gap.
-		// wp(S, Buffer->GapEnd == Buffer->End - BufferRemnants)
-		// wp(S, NewBufferSize - BufferRemnants == NewBufferSize - BufferRemnants)
+		// make sure old buffer remnants fit after the gap.
+		// wp(S, buffer->gap_end == buffer->end - buffer_remnants)
+		// wp(S, new_buffer_size - buffer_remnants == new_buffer_size - buffer_remnants)
 		// wp(S, T)
 		// T
-		Post(Buffer->GapEnd == Buffer->End - BufferRemnants);
+		post(buffer->gap_end == buffer->end - buffer_remnants);
 
-		// Final new buffer size.
-		Post(NewBufferSize == OldEnd * 2 + BufferRemnants);
+		// final new buffer size.
+		post(new_buffer_size == old_end * 2 + buffer_remnants);
 	}
 
-	Buffer->Memory[Buffer->GapBegin] = Char;
-	Buffer->Cursor++;
+	buffer->memory[buffer->gap_begin] = c;
+	buffer->cursor++;
 
-	Buffer->GapBegin++;
+	buffer->gap_begin++;
 
-	GapBufferInvariants(Buffer);
+	gap_buffer_invariants(buffer);
 
 	return true;
 }
 
 function void
-InsertNewline(gap_buffer *Buffer)
+insert_newline(gap_buffer *buffer)
 {
-	Pre(Buffer);
-	GapBufferInvariants(Buffer);
+	pre(buffer);
+	gap_buffer_invariants(buffer);
 
-	TryInsertCharacter(Buffer, '\n');
+	try_insert_character(buffer, '\n');
 
-	GapBufferInvariants(Buffer);
+	gap_buffer_invariants(buffer);
 }
 
 function void
-MoveUp(gap_buffer *Buffer)
+move_up(gap_buffer *buffer)
 {
-	Pre(Buffer);
-	GapBufferInvariants(Buffer);
+	pre(buffer);
+	gap_buffer_invariants(buffer);
 
-	buffer_position ColumnCursorIndex = Buffer->Cursor;
+	buffer_position column_cursor_index = buffer->cursor;
 
-	SetCursorToBeginOfLine(Buffer);
+	set_cursor_to_begin_of_line(buffer);
 
-	ColumnCursorIndex = ColumnCursorIndex - Buffer->Cursor;
+	column_cursor_index = column_cursor_index - buffer->cursor;
 
-	MoveBackwards(Buffer);
+	move_backwards(buffer);
 
-	SetCursorToBeginOfLine(Buffer);
+	set_cursor_to_begin_of_line(buffer);
 
-	while (ColumnCursorIndex > 0)
+	while (column_cursor_index > 0)
 	{
-		MoveForwards(Buffer);
-		--ColumnCursorIndex;
+		move_forwards(buffer);
+		--column_cursor_index;
 	}
 
-	//DebugMessage("Column cursor: \t\t%d\n", ColumnCursor);
+	//debug_message("column cursor: \t\t%d\n", column_cursor);
 
-	GapBufferInvariants(Buffer);
+	gap_buffer_invariants(buffer);
 }
 
 function void
-MoveDown(gap_buffer *Buffer)
+move_down(gap_buffer *buffer)
 {
-	Pre(Buffer);
-	GapBufferInvariants(Buffer);
+	pre(buffer);
+	gap_buffer_invariants(buffer);
 
-	buffer_position GapEnd = Buffer->GapEnd + 1;
-	buffer_position GapShift = 0;
+	buffer_position gap_end = buffer->gap_end + 1;
+	buffer_position gap_shift = 0;
 
-	GapBufferInvariants(Buffer);
+	gap_buffer_invariants(buffer);
 }
 
-// Fix similarly to moving backwards.
+// fix similarly to moving backwards.
 function void
-Backspace(gap_buffer *Buffer)
+backspace(gap_buffer *buffer)
 {
-	Pre(Buffer);
-	GapBufferInvariants(Buffer);
-	const buffer_position OldBufferSize = BufferSize(Buffer);
+	pre(buffer);
+	gap_buffer_invariants(buffer);
+	const buffer_position old_buffer_size = buffer_size(buffer);
 
-	// Cant backspace anymore.
-	if (Buffer->Cursor == 0)
+	// cant backspace anymore.
+	if (buffer->cursor == 0)
 	{
 		return;
 	}
 
-	Buffer->Cursor--;
+	buffer->cursor--;
 
-	Buffer->GapBegin--;
+	buffer->gap_begin--;
 
-	Buffer->Memory[Buffer->GapBegin] = 0;
+	buffer->memory[buffer->gap_begin] = 0;
 
-	Post(OldBufferSize - 1 == BufferSize(Buffer));
+	post(old_buffer_size - 1 == buffer_size(buffer));
 
-	GapBufferInvariants(Buffer);
+	gap_buffer_invariants(buffer);
 }
 
 function void
-DrawCursor(f32 CursorLeft, f32 CursorTop, f32 CursorRight, f32 CursorBottom, D2D1_COLOR_F CursorColor)
+draw_cursor(f32 cursor_left, f32 cursor_top, f32 cursor_right, f32 cursor_bottom, D2D1_COLOR_F cursor_color)
 {
-	D2D1_ROUNDED_RECT CursorRounded;
-	D2D1_RECT_F Cursor;
+	D2D1_ROUNDED_RECT cursor_rounded;
+	D2D1_RECT_F cursor;
 
-	Cursor.left = CursorLeft;
-	Cursor.top = CursorTop;
-	Cursor.right = CursorRight;
-	Cursor.bottom = CursorBottom;
+	cursor.left = cursor_left;
+	cursor.top = cursor_top;
+	cursor.right = cursor_right;
+	cursor.bottom = cursor_bottom;
 
-	CursorRounded.rect = Cursor;
-	CursorRounded.radiusX = 5.0f;
-	CursorRounded.radiusY = 5.0f;
+	cursor_rounded.rect = cursor;
+	cursor_rounded.radiusX = 1.0f;
+	cursor_rounded.radiusY = 1.0f;
 
-	D2D1_COLOR_F OldColor = GlobalTextBrush->GetColor();
-	GlobalTextBrush->SetColor(&CursorColor);
-	GlobalRenderTarget->DrawRoundedRectangle(CursorRounded, GlobalTextBrush, 2.0f, NULL);
-	GlobalTextBrush->SetColor(&OldColor);
+	D2D1_COLOR_F old_color = global_text_brush->GetColor();
+	global_text_brush->SetColor(&cursor_color);
+	global_render_target->DrawRoundedRectangle(cursor_rounded, global_text_brush, 2.0f, NULL);
+	global_text_brush->SetColor(&old_color);
 }
 
 function u32
-GetWhiteSpaceCount(gap_buffer* Buffer)
+get_white_space_count(gap_buffer* buffer)
 {
-	u32 Result = 0;
-	const cursor_position OldCursor = Buffer->Cursor;
+	u32 result = 0;
+	const cursor_position old_cursor = buffer->cursor;
 
-	for (Buffer->Cursor = 0; Buffer->Cursor < Buffer->End - GapSize(Buffer); Buffer->Cursor++)
+	for (buffer->cursor = 0; buffer->cursor < buffer->end - gap_size(buffer); buffer->cursor++)
 	{
-		GapBufferInvariants(Buffer);
+		gap_buffer_invariants(buffer);
 		{
-			char c = GetCharAtCursor(Buffer);
-			isspace(c) ? Result++ : Result;
+			char c = get_char_at_cursor(buffer);
+			isspace(c) ? result++ : result;
 		}
-		GapBufferInvariants(Buffer);
+		gap_buffer_invariants(buffer);
 	}
 
-	Buffer->Cursor = OldCursor;
+	buffer->cursor = old_cursor;
 
-	return Result;
+	return result;
 }
 
 function u32
-GetWordCount(gap_buffer* Buffer, cursor_position Begin, cursor_position End)
+get_word_count(gap_buffer* buffer, cursor_position begin, cursor_position end)
 {
-	Pre(Buffer);
-	Pre(Begin < End - GapSize(Buffer));
+	pre(buffer);
+	pre(begin < end - gap_size(buffer));
 
-	u32 Result = 0;
-	bool HasWordStarted = false;
+	u32 result = 0;
+	bool has_word_started = false;
 
-	for (cursor_position Cursor = Begin; Cursor != End; ++Cursor)
+	for (cursor_position cursor = begin; cursor != end; ++cursor)
 	{
-		switch (GetCharAtIndex(Buffer, Cursor)) 
+		switch (get_char_at_index(buffer, cursor)) 
 		{
 		case '\0': case ' ': 
 		case '\t': case '\n': 
 		case '\r': case '\r\n':
-			if (HasWordStarted)
+			if (has_word_started)
 			{
-				HasWordStarted = false;
-				Result++;
+				has_word_started = false;
+				result++;
 			}
 			break;
-		default: HasWordStarted = true;
+		default: has_word_started = true;
 		}
 	}
-	if (HasWordStarted)
+	if (has_word_started)
 	{
-		HasWordStarted = false;
-		Result++;
+		has_word_started = false;
+		result++;
 	}
 
-	return Result;
+	return result;
 }
 
 function u32
-GetWordCountInLine(gap_buffer* Buffer)
+get_word_count_in_line(gap_buffer* buffer)
 {
-	Pre(Buffer);
-	GapBufferInvariants(Buffer);
+	pre(buffer);
+	gap_buffer_invariants(buffer);
 
-	u32 Result = 0;
+	u32 result = 0;
 
-	gap_buffer OldBuffer = *Buffer;
+	gap_buffer old_buffer = *buffer;
 
-	SetCursorToEndOfLine(Buffer);
-	cursor_position EndOfLineCursor = Buffer->Cursor;
+	set_cursor_to_end_of_line(buffer);
+	cursor_position end_of_line_cursor = buffer->cursor;
 
-	SetCursorToBeginOfLine(Buffer);
-	cursor_position BeginOfLineCursor = Buffer->Cursor;
+	set_cursor_to_begin_of_line(buffer);
+	cursor_position begin_of_line_cursor = buffer->cursor;
 
-	Result = GetWordCount(Buffer, BeginOfLineCursor, EndOfLineCursor);
+	result = get_word_count(buffer, begin_of_line_cursor, end_of_line_cursor);
 
-	*Buffer = OldBuffer;
+	*buffer = old_buffer;
 
-	GapBufferInvariants(Buffer);
+	gap_buffer_invariants(buffer);
 
-	return Result;
+	return result;
 }
 
 function void
-Layout(gap_buffer *Buffer, f32 Width, f32 Height)
+layout(gap_buffer *buffer, f32 left, f32 top, f32 width, f32 height)
 {
-	Pre(Buffer);
-	GapBufferInvariants(Buffer);
-	Buffer->WordCount = GetWordCountInLine(Buffer);
-	GapBufferInvariants(Buffer);
+	gap_buffer_invariants(buffer);
+
+	// TODO: s16 here
+	byte utf8[1 << 16] = {};
+	WCHAR utf16[1 << 16] = {};
+
+	buffer->word_count = get_word_count_in_line(buffer);
+
+   D2D1_RECT_F layout = {};
+	layout.left = left;
+	layout.top = top;
+   layout.right = layout.left + width;
+   layout.bottom = layout.top + height;
+
+   // TODO: handle multibyte unicode advancements.
+
+   buffer_position cursor = buffer->cursor;
+   buffer_position utf_index = 0;
+   const cursor_position pane_end = global_current_pane.end;
+   for (cursor_position pane_cursor = global_current_pane.begin; pane_cursor != pane_end; pane_cursor++)
+   {
+      gap_buffer_invariants(buffer);
+
+      if (pane_cursor < buffer->end - gap_size(buffer))
+      {
+         char c = get_char_at_index(buffer, pane_cursor);
+         utf8[utf_index] = c;
+         int char_count = MultiByteToWideChar(CP_UTF8, 0, (LPCSTR)utf8 + utf_index, 1, utf16 + utf_index, 0);
+			invariant(char_count <= 1 << 16);
+         MultiByteToWideChar(CP_UTF8, 0, (LPCSTR)utf8 + utf_index, 1, utf16 + utf_index, char_count);
+         utf_index++;
+      }
+      invariant(utf_index <= (1 << 16));
+      gap_buffer_invariants(buffer);
+   }
+
+	if (global_text_layout)
+		global_text_layout->Release();
+
+	global_write_factory->CreateTextLayout(utf16, (UINT)wcslen(utf16), global_text_format, layout.right - layout.left, layout.bottom - layout.top, &global_text_layout);
+
+	IDWriteRenderingParams* params = 0;
+	HRESULT hr = global_write_factory->CreateCustomRenderingParams(
+		2.2f,                     // gamma
+		1.0f,                     // enhanced contrast
+		1.0f,                     // ClearType level
+		DWRITE_PIXEL_GEOMETRY_RGB, // pixel geometry
+		DWRITE_RENDERING_MODE_CLEARTYPE_NATURAL, // rendering mode
+		&params
+	);
+
+	if (SUCCEEDED(hr) && params)
+	{
+		global_render_target->SetTextRenderingParams(params);
+		params->Release();
+	}
+
+	gap_buffer_invariants(buffer);
 }
 
 function void
-Draw(gap_buffer *Buffer, pane *DrawPane, f32 Left, f32 Top, f32 Width, f32 Height)
+draw(gap_buffer *buffer, f32 left, f32 top, f32 width, f32 height)
 {
-	// TODO: Fix sizes for buffers
-	const usize UtfBufferSize = 512;
-	byte Utf8[UtfBufferSize];
-	ZeroMemory(Utf8, sizeof(Utf8));
-	WCHAR Utf16[UtfBufferSize];
-	ZeroMemory(Utf16, sizeof(Utf16));
+	if (width == 0 || height == 0)
+		return;
+	if (!global_text_layout)
+		return;
 
-	D2D1_RECT_F Layout = {};
-	Layout.left = Left;
-	Layout.top = Top;
-	Layout.right = Layout.left + Width;
-	Layout.bottom = Layout.top + Height;
+	D2D1_RECT_F layout = {};
+	layout.left = left;
+	layout.top = top;
+	layout.right = layout.left + width;
+	layout.bottom = layout.top + height;
 
-	GapBufferInvariants(Buffer);
+	gap_buffer_invariants(buffer);
 
-	// TODO: Handle multibyte unicode advancements.
+	global_render_target->SetAntialiasMode(D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+	global_render_target->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE);
+	global_render_target->PushAxisAlignedClip(&layout, D2D1_ANTIALIAS_MODE_ALIASED);
 
-	buffer_position UtfIndex = 0;
-	const cursor_position PaneEnd = DrawPane->End;
-	for (cursor_position PaneCursor = DrawPane->Begin; PaneCursor != PaneEnd; PaneCursor++)
-	{
-		GapBufferInvariants(Buffer);
+	f32 dpix, dpiy;
+	global_render_target->GetDpi(&dpix, &dpiy);
+	assert(dpix == 96.f && dpiy == 96.f);
 
-		if (PaneCursor < Buffer->End - GapSize(Buffer))
-		{
-			Utf8[UtfIndex] = GetCharAtIndex(Buffer, PaneCursor);
-#if 0
-			if (UtfIndex == LineWidth-1)
-			{
-				const char c = Utf8[UtfIndex];
-				Utf8[UtfIndex] = '\n';
-				Utf8[UtfIndex+1] = c;
-				MultiByteToWideChar(CP_UTF8, 0, (LPCSTR)Utf8 + UtfIndex, 2, Utf16 + UtfIndex, sizeof(Utf16));
-				UtfIndex += 2;
-				continue;
-			}
-#endif
-			MultiByteToWideChar(CP_UTF8, 0, (LPCSTR)Utf8 + UtfIndex, 1, Utf16 + UtfIndex, sizeof(Utf16));
-			UtfIndex++;
-		}
-		Invariant(UtfIndex <= ArrayCount(Utf8) && UtfIndex <= ArrayCount(Utf16));
-		GapBufferInvariants(Buffer);
-	}
+	f32 layout_left = layout.left;
+	f32 layout_top = layout.top;
 
-	Pre(ArrayCount(Utf16) > 0);
-	Utf16[ArrayCount(Utf16) - 1] = 0;
+	f32 cursor_x = 0, cursor_y = 0;
+	DWRITE_HIT_TEST_METRICS cursor_metrics = {};
+	global_text_layout->HitTestTextPosition((u32)buffer->cursor, FALSE, &cursor_x, &cursor_y, &cursor_metrics);
 
-	GlobalRenderTarget->PushAxisAlignedClip(&Layout, D2D1_ANTIALIAS_MODE_ALIASED);
+	//global_render_target->DrawTextW(utf16, (UINT)wcslen(utf16), global_text_format, layout, global_text_brush);
+	D2D1_POINT_2F origin = {layout.left, layout.top};
+	global_render_target->DrawTextLayout(origin, global_text_layout, global_text_brush);
 
-	IDWriteTextLayout* TextLayout;
-	GlobalWriteFactory->CreateTextLayout(Utf16, (UINT)wcslen(Utf16), GlobalTextFormat, Layout.right - Layout.left, Layout.bottom - Layout.top, &TextLayout);
+	f32 cursor_left = cursor_x + layout.left;
+	f32 cursor_top = cursor_y + layout.top;
+	f32 cursor_right = cursor_left + cursor_metrics.width;
+	f32 cursor_bottom = cursor_top + cursor_metrics.height;
 
-	Pre(TextLayout);
-	GlobalRenderTarget->DrawTextLayout(D2D1::Point2F(Layout.left, Layout.top), TextLayout, GlobalTextBrush);
+	D2D1_COLOR_F cursor_color = {1.0f, 0.0f, 0.0f, 1.0f};
 
-	f32 CursorX, CursorY;
-	DWRITE_HIT_TEST_METRICS CursorMetrics;
-	TextLayout->HitTestTextPosition((u32)Buffer->Cursor, FALSE, &CursorX, &CursorY, &CursorMetrics);
-
-	Pre(TextLayout);
-
-
-	f32 CursorLeft = CursorX + Layout.left;
-	f32 CursorTop = CursorY + Layout.top;
-	f32 CursorRight = CursorLeft + CursorMetrics.width;
-	f32 CursorBottom = CursorTop + CursorMetrics.height;
-
-	D2D1_COLOR_F CursorColor = {1.0f, 0.0f, 0.0f, 1.0f};
-
-	if (CursorMetrics.width > 0 && CursorMetrics.height > 0)
-	{
-		DrawCursor(CursorLeft, CursorTop, CursorRight, CursorBottom, CursorColor);
-	}
+	if (cursor_metrics.width > 0 && cursor_metrics.height > 0)
+		draw_cursor(cursor_left, cursor_top, cursor_right, cursor_bottom, cursor_color);
 	else
 	{
-		CursorColor.b = 1.0f;
-		CursorColor.g = 1.0f;
-		DrawCursor(CursorLeft, CursorTop + 37, CursorLeft + 17, CursorTop + 35, CursorColor);
+		cursor_color.b = 1.0f;
+		cursor_color.g = 0.0f;
+		draw_cursor(cursor_left, cursor_top + 37, cursor_left + 17, cursor_top + 35, cursor_color);
 	}
 
-	if (Buffer->Cursor < Buffer->End - GapSize(Buffer))
+	if (buffer->cursor < buffer->end - gap_size(buffer))
 	{
-		const char CursorChar = GetCharAtCursor(Buffer);
-		DebugMessage("Cursor char: %c\n", (CursorChar) ? CursorChar : '0');
-		//DebugMessage("\n");
+		const char cursor_char = get_char_at_cursor(buffer);
+		debug_message("cursor char: %c\n", (cursor_char) ? cursor_char : '0');
+		//debug_message("\n");
 
-		DebugMessage("Cursor width: %d\n", (int)CursorRight - (int)CursorLeft);
-		DebugMessage("Cursor height: %d\n", (int)CursorBottom - (int)CursorTop);
+		debug_message("cursor width: %d\n", (int)cursor_right - (int)cursor_left);
+		debug_message("cursor height: %d\n", (int)cursor_bottom - (int)cursor_top);
 	}
 
-#if 0
-	if (DrawPane->Begin < BufferSize(Buffer))
-	{
-		const char CursorChar = GetCharAtIndex(Buffer, DrawPane->Begin);
-		DebugMessage("Draw begin char: %c\n", CursorChar);
-	}
-#endif
-
-	//DebugMessage("Whitespace count: %u\n", Buffer->WSCount);
-	DebugMessage("Word count for the cursor line: %u\n", Buffer->WordCount);
-
-	// Draw begin pane marker.
+   // draw begin pane marker.
 	if (0)
 	{
-		f32 CursorX, CursorY;
-		DWRITE_HIT_TEST_METRICS CursorMetrics = {};
-		TextLayout->HitTestTextPosition((u32)DrawPane->Begin, FALSE, &CursorX, &CursorY, &CursorMetrics);
-		CursorLeft = CursorX + Layout.left;
-		CursorTop = CursorY + Layout.top;
-		CursorRight = CursorLeft + CursorMetrics.width;
-		CursorBottom = CursorTop + CursorMetrics.height;
+		f32 cursor_x, cursor_y;
+		DWRITE_HIT_TEST_METRICS cursor_metrics = {};
+		global_text_layout->HitTestTextPosition((u32)global_current_pane.begin, FALSE, &cursor_x, &cursor_y, &cursor_metrics);
+		cursor_left = cursor_x + layout.left;
+		cursor_top = cursor_y + layout.top;
+		cursor_right = cursor_left + cursor_metrics.width;
+		cursor_bottom = cursor_top + cursor_metrics.height;
 
-		const D2D1_COLOR_F Color = { 0.0f, 1.0f, 0.0f, 1.0f };
-		DrawCursor(CursorLeft, CursorTop, CursorRight, CursorBottom, Color);
+		const D2D1_COLOR_F color = { 0.0f, 1.0f, 0.0f, 1.0f };
+		draw_cursor(cursor_left, cursor_top, cursor_right, cursor_bottom, color);
 	}
 	if (0)
 	{
-		// Draw end pane marker.
-		TextLayout->HitTestTextPosition((u32)DrawPane->End, FALSE, &CursorX, &CursorY, &CursorMetrics);
-		CursorLeft = CursorX + Layout.left;
-		CursorTop = CursorY + Layout.top;
-		CursorRight = CursorLeft + CursorMetrics.width;
-		CursorBottom = CursorTop + CursorMetrics.height;
+		// draw end pane marker.
+		global_text_layout->HitTestTextPosition((u32)global_current_pane.end, FALSE, &cursor_x, &cursor_y, &cursor_metrics);
+		cursor_left = cursor_x + layout.left;
+		cursor_top = cursor_y + layout.top;
+		cursor_right = cursor_left + cursor_metrics.width;
+		cursor_bottom = cursor_top + cursor_metrics.height;
 
-		const D2D1_COLOR_F Color = { 1.0f, 0.0f, 0.0f, 1.0f };
-		DrawCursor(CursorLeft, CursorTop, CursorRight, CursorBottom, Color);
+		const D2D1_COLOR_F color = { 1.0f, 0.0f, 0.0f, 1.0f };
+		draw_cursor(cursor_left, cursor_top, cursor_right, cursor_bottom, color);
 	}
 
-	TextLayout->Release();
-
-	GlobalRenderTarget->PopAxisAlignedClip();
-
-	GapBufferInvariants(Buffer);
+	global_render_target->PopAxisAlignedClip();
+	gap_buffer_invariants(buffer);
 }
 
-// TODO: Fix cursor position in the pane scoll
+// TODO: fix cursor position in the pane scoll
 function void
-UpdateScrollPaneView(gap_buffer *Buffer, pane *Scroll)
+update_scroll_pane_view(gap_buffer *buffer, pane *scroll)
 {
-	Pre(Buffer);
-	Pre(Scroll);
+	pre(buffer);
+	pre(scroll);
 
-	GapBufferInvariants(Buffer);
-	ScrollPaneInvariants(Scroll, Buffer);
+	gap_buffer_invariants(buffer);
+	scroll_pane_invariants(scroll, buffer);
 
-	// Cursor must always be in the current scroll region: [begin, end)
-	if (Buffer->Cursor < Scroll->Begin)
+	// cursor must always be in the current scroll region: [begin, end)
+	if (buffer->cursor < scroll->begin)
 	{
 		return;
 	}
-	Post(Buffer->Cursor >= Scroll->Begin);
+	post(buffer->cursor >= scroll->begin);
 
-	if (Buffer->Cursor >= Scroll->End)
+	if (buffer->cursor >= scroll->end)
 	{
 		return;
 	}
-	Post(Buffer->Cursor < Scroll->End);
+	post(buffer->cursor < scroll->end);
 
-	ScrollPaneInvariants(Scroll, Buffer);
-	GapBufferInvariants(Buffer);
+	scroll_pane_invariants(scroll, buffer);
+	gap_buffer_invariants(buffer);
 }
 
 function void
-LoadTestFile(gap_buffer *Buffer)
+load_test_file(gap_buffer *buffer)
 {
-	Pre(Buffer);
+	pre(buffer);
 }
 
 function uint2 
-GetEditorWindowSize(HWND WindowHandle)
+get_editor_window_size(HWND window_handle)
 {
-	uint2 Result = {};
+	uint2 result = {};
 
 	RECT rect;
-	if (GetClientRect(WindowHandle, &rect))
+	if (GetClientRect(window_handle, &rect))
 	{
 		int width = rect.right - rect.left;
 		int height = rect.bottom - rect.top;
 
-		Result.x = width;
-		Result.y = height;
+		result.x = width;
+		result.y = height;
 	}
-	return Result;
+	return result;
 }
 
+// TODO: Input thread for keys
 LRESULT CALLBACK
-SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
+sys_window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l_param)
 {
-	LRESULT Result = 0;
+	LRESULT result = 0;
 
-	gap_buffer* Buffer = (gap_buffer*)(void*)GetWindowLongPtr(Window, GWLP_USERDATA);
+	gap_buffer* buffer = (gap_buffer*)(void*)GetWindowLongPtr(window, GWLP_USERDATA);
 
-	if (Buffer)
+	if (buffer)
 	{
-		switch (Message)
+		switch (message)
 		{
 		case WM_DESTROY:
 			{
-				GlobalQuit = true;
+				global_quit = true;
 			} break;
 		case WM_SIZE:
 			{
-				RECT ClientRect;
-				GetClientRect(Window, &ClientRect);
-				D2D1_SIZE_U WindowSize;
-				WindowSize.width = ClientRect.right - ClientRect.left;
-				WindowSize.height = ClientRect.bottom - ClientRect.top;
-				if (GlobalRenderTarget)
+				RECT client_rect;
+				GetClientRect(window, &client_rect);
+				D2D1_SIZE_U window_size;
+				window_size.width = client_rect.right - client_rect.left;
+				window_size.height = client_rect.bottom - client_rect.top;
+				if (global_render_target)
 				{
-					GlobalRenderTarget->Release();
+					global_render_target->Release();
 				}
-				GlobalD2D1Factory->CreateHwndRenderTarget(D2D1::RenderTargetProperties(), D2D1::HwndRenderTargetProperties(Window, WindowSize), &GlobalRenderTarget);
-				if (GlobalTextBrush)
+				GlobalD2D1Factory->CreateHwndRenderTarget(D2D1::RenderTargetProperties(), D2D1::HwndRenderTargetProperties(window, window_size), &global_render_target);
+				if (global_text_brush)
 				{
-					GlobalTextBrush->Release();
+					global_text_brush->Release();
 				}
-				GlobalRenderTarget->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Black), &GlobalTextBrush);
+				global_render_target->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Black), &global_text_brush);
 			} break;
+#if 0
 		case WM_CHAR:
 			{
 				{
-					u32 VkCode = (u32)WParam;
-					b32 WasDown = (LParam & (1ll << 30)) != 0;
-					b32 IsDown = (LParam & (1ll << 31)) == 0;
+					u32 vk_code = (u32)w_param;
+					b32 was_down = (l_param & (1ll << 30)) != 0;
+					b32 is_down = (l_param & (1ll << 31)) == 0;
 
-					if (VkCode == 0x0d)
+					if (vk_code == 0x0d)
 					{
-						InsertNewline(Buffer);
+						insert_newline(buffer);
 					}
-					else if (VkCode == VK_BACK)
+					else if (vk_code == VK_BACK)
 					{
-						Backspace(Buffer);
+						backspace(buffer);
 					}
-					else if (VkCode == '0')
+					else if (vk_code == '0')
 					{
-						SetCursorToBeginOfLine(Buffer);
+						set_cursor_to_begin_of_line(buffer);
 					}
-					else if (VkCode == '$')
+					else if (vk_code == '$')
 					{
-						SetCursorToEndOfLine(Buffer);
+						set_cursor_to_end_of_line(buffer);
 					}
 #if 0
-					else if (VkCode == 'h')
+					else if (vk_code == 'h')
 					{
-						ScrollPaneInvariants(&GlobalCurrentPane, Buffer);
-						// Scroll forward
-						// TODO: Should probably be GlobalCurrentPane.End < buffersize(buffer)
-						if (GlobalCurrentPane.Begin < GlobalCurrentPane.End && GlobalCurrentPane.End < Buffer->End)
+						scroll_pane_invariants(&global_current_pane, buffer);
+						// scroll forward
+						// TODO: should probably be global_current_pane.end < buffersize(buffer)
+						if (global_current_pane.Begin < global_current_pane.end && global_current_pane.end < buffer->end)
 						{
-							++GlobalCurrentPane.End;
-							++GlobalCurrentPane.Begin;
+							++global_current_pane.end;
+							++global_current_pane.Begin;
 						}
 
-						ScrollPaneInvariants(&GlobalCurrentPane, Buffer);
-						//Invariant(begin++, end++, Scroll->Begin < Scroll->End);
-						//Invariant(Scroll->Begin + 1 < Scroll->End + 1);
-						//Invariant(Scroll->Begin < Scroll->End );
+						scroll_pane_invariants(&global_current_pane, buffer);
+						//invariant(begin++, end++, scroll->Begin < scroll->end);
+						//invariant(scroll->Begin + 1 < scroll->end + 1);
+						//invariant(scroll->Begin < scroll->end );
 					}
-					else if (VkCode == 'l')
+					else if (vk_code == 'l')
 					{
-						ScrollPaneInvariants(&GlobalCurrentPane, Buffer);
-						// Scroll back
-						if (GlobalCurrentPane.Begin > 0)
+						scroll_pane_invariants(&global_current_pane, buffer);
+						// scroll back
+						if (global_current_pane.Begin > 0)
 						{
-							--GlobalCurrentPane.Begin;
-							--GlobalCurrentPane.End;
+							--global_current_pane.Begin;
+							--global_current_pane.end;
 						}
-						ScrollPaneInvariants(&GlobalCurrentPane, Buffer);
+						scroll_pane_invariants(&global_current_pane, buffer);
 					}
 #endif
 					else
 					{
-						// Cleanup
+						// cleanup
 						{
-							const int BufferSize = WideCharToMultiByte(CP_UTF8, 0, (WCHAR*)&WParam, 1, 0, 0, 0, 0);
+							const int buffer_size = WideCharToMultiByte(CP_UTF8, 0, (WCHAR*)&w_param, 1, 0, 0, 0, 0);
 
-							char* MultiBytes = (char*)_malloca(BufferSize);
+							char multi_bytes[16] = {};
 
-							if (!MultiBytes)
-							{
-								Halt;
-							}
+							const int result = WideCharToMultiByte(CP_UTF8, 0, (WCHAR*)&w_param, 1, multi_bytes, buffer_size, 0, 0);
 
-							const int Result = WideCharToMultiByte(CP_UTF8, 0, (WCHAR*)&WParam, 1, MultiBytes, BufferSize, 0, 0);
-
-							// Remove the <= 2 byte assumption.
-							// Multibyte chars.
+							// remove the <= 2 byte assumption.
+							// multibyte chars.
 							// TODO: test the booleans.
-							if (Result == 2)
+							if (result == 2)
 							{
-								TryInsertCharacter(Buffer, MultiBytes[0]);
-								TryInsertCharacter(Buffer, MultiBytes[1]);
+								try_insert_character(buffer, multi_bytes[0]);
+								try_insert_character(buffer, multi_bytes[1]);
 							}
-							else if (Result == 1)
-							{
-								TryInsertCharacter(Buffer, MultiBytes[0]);
-							}
+							else if (result == 1)
+								try_insert_character(buffer, multi_bytes[0]);
 						}
 					}
 				}
 			} break;
 		case WM_KEYDOWN:
 			{
-				switch(WParam)
+				switch(w_param)
 				{
 				case VK_LEFT:	
-					if (Buffer->Cursor != 0)
+					if (buffer->cursor != 0)
 					{
-						MoveBackwards(Buffer);
+						move_backwards(buffer);
 					}
 					break;
 				case VK_RIGHT:	
-					if (Buffer->Cursor < BufferSize(Buffer))
+					if (buffer->cursor < buffer_size(buffer))
 					{
-						MoveForwards(Buffer);
+						move_forwards(buffer);
 					}
 					break; 
 				case VK_DOWN:	
 					{
-						// TODO: Scroll down by the amount it gets to next newline from scroll pane begin if exists
-						// TODO: Right now just scroll by fixed amount for testing
-						const usize ScrollCount = 6;
-						if (ScrollSize(&GlobalCurrentPane) > ScrollCount)
+						// TODO: scroll down by the amount it gets to next newline from scroll pane begin if exists
+						// TODO: right now just scroll by fixed amount for testing
+						const usize scroll_count = 6;
+						if (scroll_size(&global_current_pane) > scroll_count)
 						{
-							GlobalCurrentPane.Begin += ScrollCount;
+							global_current_pane.begin += scroll_count;
 						}
-						ScrollPaneInvariants(&GlobalCurrentPane, Buffer);
+						scroll_pane_invariants(&global_current_pane, buffer);
 
 						// wp(begin += 5, begin < end)
 						// wp(begin + 5 < end)
@@ -1036,12 +1103,12 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 					break; 
 				case VK_UP:	
 					{
-						// TODO: Scroll up by the amount it gets to next newline if exists
-						if (0 < GlobalCurrentPane.End - GlobalCurrentPane.Begin + 6 && GlobalCurrentPane.Begin >= 6)
+						// TODO: scroll up by the amount it gets to next newline if exists
+						if (0 < global_current_pane.end - global_current_pane.begin + 6 && global_current_pane.begin >= 6)
 						{
-							GlobalCurrentPane.Begin -= 6;
+							global_current_pane.begin -= 6;
 						}
-						ScrollPaneInvariants(&GlobalCurrentPane, Buffer);
+						scroll_pane_invariants(&global_current_pane, buffer);
 
 						// case1:
 						// wp(begin -= 5, begin < end && begin >= 0)
@@ -1055,125 +1122,228 @@ SysWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 					}
 					break; 
 				case VK_END:	
-					LoadTestFile(Buffer); 
+					load_test_file(buffer); 
 					break;
 				}
 			} break;
+#endif
 		default:
 			{
-				Result = DefWindowProc(Window, Message, WParam, LParam);
+				result = DefWindowProc(window, message, w_param, l_param);
 				break;
 			}
 		}
-		return Result;
+		return result;
 	}
 
-	return DefWindowProc(Window, Message, WParam, LParam);
+	return DefWindowProc(window, message, w_param, l_param);
 }
 
-
-#if 0
-u32 FindLastMatch(int* Buffer, u32 i, u32 n)
+static void set_window_title(HWND handle, const char* message, ...)
 {
-	u32 k = n-1;
-	while (Buffer[k] != Buffer[i])
+	static char buffer[512];
+
+	va_list args;
+	va_start(args, message);
+
+	vsprintf_s(buffer, sizeof(buffer), message, args);
+
+	SetWindowTextA(handle, buffer);
+
+	va_end(args);
+}
+
+struct KeyInfo
+{
+	bool was_down = false;
+	DWORD last_insert = 0;
+};
+
+KeyInfo key_infos[256]; // one per virtual key
+
+function bool input_gather(gap_buffer* buffer)
+{
+	bool layout_dirty = false;
+	u32 key_state_down = 0x8000;
+	u32 key_state_pressed = 0x0001;
+   u32 repeat_delay = 200;
+
+	DWORD now = GetTickCount();
+
+	// letters
+	for (int vk = 'A'; vk <= 'Z'; ++vk)
 	{
-		k--;
-		Invariant(Implies(0 < k && k < i, Buffer[k+1] != Buffer[i]));
+		u32 state = GetAsyncKeyState(vk);
+		bool is_down = (state & 0x8000) != 0;
+
+		KeyInfo& info = key_infos[vk];
+
+		if (!is_down) {
+			info.was_down = false; // reset on release
+			continue;
+		}
+
+		bool insert_char = false;
+
+		if (!info.was_down)
+		{
+			// initial press
+			insert_char = true;
+			info.last_insert = now;
+		}
+		else
+		{
+			if (now - info.last_insert >= repeat_delay)
+			{
+				insert_char = true;
+				info.last_insert = now - repeat_delay;
+			}
+		}
+
+		if (insert_char)
+		{
+			char ch = MapVirtualKeyA(vk, MAPVK_VK_TO_CHAR);
+			bool caps = (GetKeyState(VK_CAPITAL) & 0x0001) != 0;
+			bool shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+
+			if (!ch)
+				break;
+
+			if (!(shift ^ caps)) { // XOR: if both same so lowercase
+				ch = tolower(ch);
+			}
+			else {
+				ch = toupper(ch); // optional, to be explicit
+			}
+
+         try_insert_character(buffer, ch);
+         layout_dirty = true;
+		}
+
+		info.was_down = true;
 	}
 
-	Post(Buffer[i] == Buffer[k]);
+	if(GetAsyncKeyState(VK_RIGHT) & key_state_pressed)
+      if (buffer->cursor < buffer_size(buffer))
+         move_forwards(buffer);
 
-	return k;
-}
+	if(GetAsyncKeyState(VK_LEFT) & key_state_pressed)
+      if (buffer->cursor != 0)
+         move_backwards(buffer);
 
-u32 FindFirstMatch(int* Buffer, u32 i)
-{
-	u32 k = 0;
-	while (Buffer[k] != Buffer[i])
+	if(GetAsyncKeyState(VK_RETURN) & key_state_pressed)
 	{
-		Invariant(Implies(0 < k && k <= i, Buffer[k] != Buffer[i]));
-		k++;
+		insert_newline(buffer);
+		layout_dirty = true;
 	}
 
-	Post(Buffer[i] == Buffer[k]);
+	if(GetAsyncKeyState(VK_BACK) & key_state_pressed)
+	{
+		backspace(buffer);
+		layout_dirty = true;
+	}
 
-	return k;
+	if(GetAsyncKeyState(VK_SPACE) & key_state_pressed)
+	{
+		try_insert_character(buffer, ' ');
+		layout_dirty = true;
+	}
+
+	return layout_dirty;
 }
-#endif
 
-int WINAPI 
-WinMain(HINSTANCE Instance, HINSTANCE, LPSTR, int)
+int main()
 {
-	gap_buffer GapBuffer = {};
+	clock_query_frequency();
 
-	const usize BufferSize = 256;
+	gap_buffer gap_buffer = {};
 
-	// TODO: Reasonable intial buffer size - just for testing now
-	Initialize(&GapBuffer, BufferSize);
+	const usize buffer_size = 1<<16;
 
-	// TODO: Change the values to cover the entire pane
-	// TODO: Think about the pane range
-	GlobalCurrentPane.Begin = GapBuffer.Cursor;
-	GlobalCurrentPane.End = BufferSize;
+	// TODO: reasonable intial buffer size - just for testing now
+	initialize(&gap_buffer, buffer_size);
+
+	// TODO: change the values to cover the entire pane
+	// TODO: think about the pane range
+	global_current_pane.begin = gap_buffer.cursor;
+	global_current_pane.end = buffer_size;
 
 	// COM stuff.
 	{
 		HRESULT DWriteResult = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &GlobalD2D1Factory);
-		DWriteResult = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), (IUnknown**)&GlobalWriteFactory);
-		DWriteResult = GlobalWriteFactory->CreateTextFormat(L"Consolas", 0, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 32.0f, L"en-us", &GlobalTextFormat);
-		GlobalTextFormat->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+		DWriteResult = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), (IUnknown**)&global_write_factory);
+		DWriteResult = global_write_factory->CreateTextFormat(L"Consolas", 0, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 30.0f, L"en-us", &global_text_format);
+		global_text_format->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
 	}
 
 	{
-		WNDCLASS WindowClass = {};
-		WindowClass.hInstance = Instance;
-		WindowClass.lpfnWndProc = SysWindowProc;
-		WindowClass.lpszClassName = L"zed";
-		WindowClass.style = CS_OWNDC | CS_HREDRAW | CS_VREDRAW;
-		ATOM WindowClassAtom = RegisterClass(&WindowClass);
+		WNDCLASS window_class = {};
+		window_class.hInstance = 0;
+		window_class.lpfnWndProc = sys_window_proc;
+		window_class.lpszClassName = L"zed";
+		window_class.style = CS_OWNDC | CS_HREDRAW | CS_VREDRAW;
+		ATOM window_class_atom = RegisterClass(&window_class);
 
-		Invariant(WindowClassAtom);
+		invariant(window_class_atom);
 	}
 
-	// Adjust the client area related to the screen origin + client size.
-	int X = 500;
-	int Y = 300;
-	int Width = 800;
-	int Height = 600;
-	RECT DesiredWindow = { X, Y, Width, Height };
-	AdjustWindowRect(&DesiredWindow, WS_OVERLAPPEDWINDOW, FALSE);
-	HWND WindowHandle = CreateWindow(L"zed", L"Editor", WS_OVERLAPPEDWINDOW, DesiredWindow.left, DesiredWindow.top, DesiredWindow.right, DesiredWindow.bottom, 0, 0, Instance, 0);
+	// adjust the client area related to the screen origin + client size.
+	int x = 100;
+	int y = 100;
+	int width = 800;
+	int height = 600;
+	RECT desired_window = { x, y, width, height };
+	AdjustWindowRect(&desired_window, WS_OVERLAPPEDWINDOW, FALSE);
+	HWND window_handle = CreateWindow(L"zed", L"editor", WS_OVERLAPPEDWINDOW, desired_window.left, desired_window.top, desired_window.right, desired_window.bottom, 0, 0, 0, 0);
 
-	Invariant(WindowHandle);
+	invariant(window_handle);
 
-	// TODO: Attach pane or do a pointer to the current buffer inside the pane structure.
-	SetWindowLongPtr(WindowHandle, GWLP_USERDATA, (LONG_PTR)&GapBuffer);
+	// TODO: attach pane or do a pointer to the current buffer inside the pane structure.
+	SetWindowLongPtr(window_handle, GWLP_USERDATA, (LONG_PTR)&gap_buffer);
 
-	UpdateWindow(WindowHandle);
-	ShowWindow(WindowHandle, SW_SHOW);
+	UpdateWindow(window_handle);
+	ShowWindow(window_handle, SW_SHOW);
 
-	while (!GlobalQuit)
+   s64 begin = clock_query_counter();
+
+	while (!global_quit)
 	{
-		MSG Message;
-		while (PeekMessage(&Message, 0, 0, 0, PM_REMOVE))
+		MSG message;
+		while (PeekMessage(&message, 0, 0, 0, PM_REMOVE))
 		{
-			TranslateMessage(&Message);
-			DispatchMessage(&Message);
+			TranslateMessage(&message);
+			DispatchMessage(&message);
 		}
 
-		UpdateScrollPaneView(&GapBuffer, &GlobalCurrentPane);
+		update_scroll_pane_view(&gap_buffer, &global_current_pane);
 
-		// TODO: Lock to 60FPS.
-		GlobalRenderTarget->BeginDraw();
-		GlobalRenderTarget->Clear(D2D1::ColorF(D2D1::ColorF::LightBlue));
-		uint2 WindowSize = GetEditorWindowSize(WindowHandle);
-		Layout(&GapBuffer, (f32)WindowSize.x, (f32)WindowSize.y);
-		Draw(&GapBuffer, &GlobalCurrentPane, 0, 0, (f32)WindowSize.x, (f32)WindowSize.y);
-		GlobalRenderTarget->EndDraw();
+		bool do_layout = input_gather(&gap_buffer);
+		uint2 window_size = get_editor_window_size(window_handle);
+
+      if (do_layout)
+         layout(&gap_buffer, 0, 0, (f32)window_size.x, (f32)window_size.y);
+
+		global_render_target->BeginDraw();
+		global_render_target->Clear(D2D1::ColorF(D2D1::ColorF::LightBlue));
+
+      draw(&gap_buffer, 0, 0, (f32)window_size.x, (f32)window_size.y);
+
+		frame_sync(0.01666666666666666666666666666667 / 1);
+
+		s64 end = clock_query_counter();
+
+		HRESULT draw_result = global_render_target->EndDraw();
+		if (draw_result != S_OK)
+			return -1;
+
+		f64 seonds_elapsed = clock_seconds_elapsed(begin, end);
+
+		begin = end;
+
+		set_window_title(window_handle, "FPS: %u", (u32)((1.f / seonds_elapsed) + .5f));
 	}
 
-	DeInitialize(&GapBuffer);
+	de_initialize(&gap_buffer);
 
 	return 0;
 }
