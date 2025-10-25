@@ -982,14 +982,10 @@ sys_window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l_param)
 				window_size.width = client_rect.right - client_rect.left;
 				window_size.height = client_rect.bottom - client_rect.top;
 				if (global_render_target)
-				{
 					global_render_target->Release();
-				}
 				GlobalD2D1Factory->CreateHwndRenderTarget(D2D1::RenderTargetProperties(), D2D1::HwndRenderTargetProperties(window, window_size), &global_render_target);
 				if (global_text_brush)
-				{
 					global_text_brush->Release();
-				}
 				global_render_target->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Black), &global_text_brush);
 			} break;
 #if 0
@@ -1153,74 +1149,32 @@ static void set_window_title(HWND handle, const char* message, ...)
 	va_end(args);
 }
 
-struct KeyInfo
-{
-	bool was_down = false;
-	DWORD last_insert = 0;
-};
-
-KeyInfo key_infos[256]; // one per virtual key
-
 function bool input_gather(gap_buffer* buffer)
 {
 	bool layout_dirty = false;
 	u32 key_state_down = 0x8000;
 	u32 key_state_pressed = 0x0001;
-   u32 repeat_delay = 200;
 
-	DWORD now = GetTickCount();
-
-	// letters
-	for (int vk = 'A'; vk <= 'Z'; ++vk)
+	BYTE key_states[256] = {};
+	if (GetKeyboardState(key_states))
 	{
-		u32 state = GetAsyncKeyState(vk);
-		bool is_down = (state & 0x8000) != 0;
-
-		KeyInfo& info = key_infos[vk];
-
-		if (!is_down) {
-			info.was_down = false; // reset on release
-			continue;
-		}
-
-		bool insert_char = false;
-
-		if (!info.was_down)
+		for (int vk = 'A'; vk <= 'Z'; ++vk)
 		{
-			// initial press
-			insert_char = true;
-			info.last_insert = now;
+			bool is_down = (key_states[vk] & 0x80) != 0;
+			if (!is_down)
+				continue;
+
+			u32 ch = MapVirtualKeyA(vk, MAPVK_VK_TO_CHAR);
+
+			bool caps = (key_states[VK_CAPITAL] & 0x01) != 0;
+			bool shift = (key_states[VK_SHIFT] & 0x80) != 0;
+
+			if (!(shift ^ caps))
+				ch = (char)tolower(ch);
+
+			try_insert_character(buffer, (char)ch);
+			layout_dirty = true;
 		}
-		else
-		{
-			if (now - info.last_insert >= repeat_delay)
-			{
-				insert_char = true;
-				info.last_insert = now - repeat_delay;
-			}
-		}
-
-		if (insert_char)
-		{
-			char ch = MapVirtualKeyA(vk, MAPVK_VK_TO_CHAR);
-			bool caps = (GetKeyState(VK_CAPITAL) & 0x0001) != 0;
-			bool shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
-
-			if (!ch)
-				break;
-
-			if (!(shift ^ caps)) { // XOR: if both same so lowercase
-				ch = tolower(ch);
-			}
-			else {
-				ch = toupper(ch); // optional, to be explicit
-			}
-
-         try_insert_character(buffer, ch);
-         layout_dirty = true;
-		}
-
-		info.was_down = true;
 	}
 
 	if(GetAsyncKeyState(VK_RIGHT) & key_state_pressed)
