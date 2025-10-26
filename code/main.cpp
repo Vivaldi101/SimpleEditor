@@ -847,7 +847,6 @@ draw(gap_buffer* buffer, f32 left, f32 top, f32 width, f32 height)
    DWRITE_HIT_TEST_METRICS cursor_metrics = {};
    global_text_layout->HitTestTextPosition((u32)buffer->cursor, FALSE, &cursor_x, &cursor_y, &cursor_metrics);
 
-   //global_render_target->DrawTextW(utf16, (UINT)wcslen(utf16), global_text_format, layout, global_text_brush);
    D2D1_POINT_2F origin = { layout.left, layout.top };
    global_render_target->DrawTextLayout(origin, global_text_layout, global_text_brush);
 
@@ -1155,25 +1154,32 @@ function bool input_gather(gap_buffer* buffer)
    u32 key_state_down = 0x8000;
    u32 key_state_pressed = 0x0001;
 
-   BYTE key_states[256] = {};
-   if (GetKeyboardState(key_states))
+   static bool prev_down[256] = {};
+
+   for (int vk = 'A'; vk <= 'Z'; ++vk)
    {
-      for (int vk = 'A'; vk <= 'Z'; ++vk)
+      u32 key_state = GetAsyncKeyState(vk);
+
+      bool is_down = (key_state & 0x8000) != 0;
+      bool was_pressed = is_down && !prev_down[vk];
+
+      u32 ch = MapVirtualKeyA(vk, MAPVK_VK_TO_CHAR);
+
+      // Caps Lock is toggle state — 0x0001 bit of GetKeyState
+      bool caps = (GetKeyState(VK_CAPITAL) & 0x0001) != 0;
+      // Shift is physical state — 0x8000 bit of GetAsyncKeyState
+      bool shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+
+      if (!(shift ^ caps))
+         ch = (char)tolower(ch);
+
+      prev_down[vk] = is_down;
+
+      if (is_down || was_pressed)
       {
-         bool is_down = (key_states[vk] & 0x80) != 0;
-         if (!is_down)
-            continue;
-
-         u32 ch = MapVirtualKeyA(vk, MAPVK_VK_TO_CHAR);
-
-         bool caps = (key_states[VK_CAPITAL] & 0x01) != 0;
-         bool shift = (key_states[VK_SHIFT] & 0x80) != 0;
-
-         if (!(shift ^ caps))
-            ch = (char)tolower(ch);
-
-         try_insert_character(buffer, (char)ch);
          layout_dirty = true;
+         try_insert_character(buffer, (char)ch);
+         break;
       }
    }
 
@@ -1255,11 +1261,12 @@ int main()
    // TODO: attach pane or do a pointer to the current buffer inside the pane structure.
    SetWindowLongPtr(window_handle, GWLP_USERDATA, (LONG_PTR)&gap_buffer);
 
+   UpdateWindow(window_handle);
+   ShowWindow(window_handle, SW_SHOW);
+
    HWND console = GetConsoleWindow();
    ShowWindow(console, SW_HIDE);
 
-   UpdateWindow(window_handle);
-   ShowWindow(window_handle, SW_SHOW);
    s64 begin = clock_query_counter();
 
    while (!global_quit)
@@ -1274,8 +1281,6 @@ int main()
       update_scroll_pane_view(&gap_buffer, &global_current_pane);
 
       bool do_layout = input_gather(&gap_buffer);
-      frame_sync(0.01666666666666666666666666666667 / 2);
-
       uint2 window_size = get_editor_window_size(window_handle);
 
       if (do_layout)
@@ -1286,7 +1291,7 @@ int main()
 
       draw(&gap_buffer, 0, 0, (f32)window_size.x, (f32)window_size.y);
 
-      frame_sync(0.01666666666666666666666666666667 / 2);
+      frame_sync(0.01666666666666666666666666666667 / 1);
 
       s64 end = clock_query_counter();
 
