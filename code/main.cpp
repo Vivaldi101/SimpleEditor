@@ -103,6 +103,7 @@ struct gap_buffer
    cursor_position cursor; // [cursor, end). logical cursor position.
    u32 ws_count;			// TODO: put this into cold data
    u32 word_count;			// TODO: put this into cold data
+   f64 time_since_last_insert[256];
    byte* memory;
 };
 
@@ -1148,15 +1149,16 @@ static void set_window_title(HWND handle, const char* message, ...)
    va_end(args);
 }
 
-function bool input_gather(gap_buffer* buffer)
+function void input_gather(gap_buffer* buffer, f64 total_seconds_elapsed)
 {
-   bool layout_dirty = false;
    u32 key_state_down = 0x8000;
    u32 key_state_pressed = 0x0001;
 
    static bool prev_down[256] = {};
 
-   for (int vk = 'A'; vk <= 'Z'; ++vk)
+   const f64 key_down_interval = 0.33f; // 330ms 
+
+   for(int vk = 'A'; vk <= 'Z'; ++vk)
    {
       u32 key_state = GetAsyncKeyState(vk);
 
@@ -1170,46 +1172,50 @@ function bool input_gather(gap_buffer* buffer)
       // Shift is physical state — 0x8000 bit of GetAsyncKeyState
       bool shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
 
-      if (!(shift ^ caps))
+      if(!(shift ^ caps))
          ch = (char)tolower(ch);
 
-      prev_down[vk] = is_down;
-
-      if (is_down || was_pressed)
+      if(was_pressed)
       {
-         layout_dirty = true;
+         buffer->time_since_last_insert[vk] = total_seconds_elapsed;
          try_insert_character(buffer, (char)ch);
-         break;
+         printf("Pressed timestamp: %f\n", buffer->time_since_last_insert[vk]);
       }
+      else if(is_down)
+      {
+         f64 delta_seconds = total_seconds_elapsed - buffer->time_since_last_insert[vk];
+         if(delta_seconds > key_down_interval)
+         {
+            try_insert_character(buffer, (char)ch);
+            printf("Is Down timestamp: %f\n", total_seconds_elapsed);
+         }
+      }
+
+      prev_down[vk] = is_down;
    }
 
-   if (GetAsyncKeyState(VK_RIGHT) & key_state_pressed)
-      if (buffer->cursor < buffer_size(buffer))
+   if(GetAsyncKeyState(VK_RIGHT) & key_state_pressed)
+      if(buffer->cursor < buffer_size(buffer))
          move_forwards(buffer);
 
-   if (GetAsyncKeyState(VK_LEFT) & key_state_pressed)
-      if (buffer->cursor != 0)
+   if(GetAsyncKeyState(VK_LEFT) & key_state_pressed)
+      if(buffer->cursor != 0)
          move_backwards(buffer);
 
-   if (GetAsyncKeyState(VK_RETURN) & key_state_pressed)
+   if(GetAsyncKeyState(VK_RETURN) & key_state_pressed)
    {
       insert_newline(buffer);
-      layout_dirty = true;
    }
 
-   if (GetAsyncKeyState(VK_BACK) & key_state_pressed)
+   if(GetAsyncKeyState(VK_BACK) & key_state_pressed)
    {
       backspace(buffer);
-      layout_dirty = true;
    }
 
-   if (GetAsyncKeyState(VK_SPACE) & key_state_pressed)
+   if(GetAsyncKeyState(VK_SPACE) & key_state_pressed)
    {
       try_insert_character(buffer, ' ');
-      layout_dirty = true;
    }
-
-   return layout_dirty;
 }
 
 int main()
@@ -1264,15 +1270,16 @@ int main()
    UpdateWindow(window_handle);
    ShowWindow(window_handle, SW_SHOW);
 
-   HWND console = GetConsoleWindow();
-   ShowWindow(console, SW_HIDE);
+   //HWND console = GetConsoleWindow();
+   //ShowWindow(console, SW_HIDE);
 
    s64 begin = clock_query_counter();
+   f64 total_seconds_elapsed = 0;
 
    while (!global_quit)
    {
       MSG message;
-      while (PeekMessage(&message, 0, 0, 0, PM_REMOVE))
+      while(PeekMessage(&message, 0, 0, 0, PM_REMOVE))
       {
          TranslateMessage(&message);
          DispatchMessage(&message);
@@ -1280,11 +1287,11 @@ int main()
 
       update_scroll_pane_view(&gap_buffer, &global_current_pane);
 
-      bool do_layout = input_gather(&gap_buffer);
+      input_gather(&gap_buffer, total_seconds_elapsed);
+
       uint2 window_size = get_editor_window_size(window_handle);
 
-      if (do_layout)
-         layout(&gap_buffer, 0, 0, (f32)window_size.x, (f32)window_size.y);
+      layout(&gap_buffer, 0, 0, (f32)window_size.x, (f32)window_size.y);
 
       global_render_target->BeginDraw();
       global_render_target->Clear(D2D1::ColorF(D2D1::ColorF::LightBlue));
@@ -1296,14 +1303,15 @@ int main()
       s64 end = clock_query_counter();
 
       HRESULT draw_result = global_render_target->EndDraw();
-      if (draw_result != S_OK)
+      if(draw_result != S_OK)
          return -1;
 
-      f64 seonds_elapsed = clock_seconds_elapsed(begin, end);
+      f64 seconds_elapsed = clock_seconds_elapsed(begin, end);
+      total_seconds_elapsed += seconds_elapsed;
 
       begin = end;
 
-      set_window_title(window_handle, "FPS: %u", (u32)((1.f / seonds_elapsed) + .5f));
+      set_window_title(window_handle, "FPS: %u", (u32)((1.f / seconds_elapsed) + .5f));
    }
 
    de_initialize(&gap_buffer);
