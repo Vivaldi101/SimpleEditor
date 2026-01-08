@@ -1156,7 +1156,7 @@ function void input_gather(gap_buffer* buffer, f64 total_seconds_elapsed)
 
    static bool prev_down[256] = {};
 
-   const f64 key_down_interval = 0.33f; // 330ms 
+   const f64 key_down_interval = 0.16666666667f; // ~167ms - 10 frames of delay in 60 FPS
 
    for(int vk = 'A'; vk <= 'Z'; ++vk)
    {
@@ -1194,28 +1194,80 @@ function void input_gather(gap_buffer* buffer, f64 total_seconds_elapsed)
       prev_down[vk] = is_down;
    }
 
+   {
+      const usize vk = VK_BACK;
+      u32 key_state = GetAsyncKeyState(vk);
+      bool is_down = (key_state & 0x8000) != 0;
+      bool was_pressed = is_down && !prev_down[vk];
+
+      if(was_pressed)
+      {
+         buffer->time_since_last_insert[vk] = total_seconds_elapsed;
+         backspace(buffer);
+      }
+      else if(is_down)
+      {
+         f64 delta_seconds = total_seconds_elapsed - buffer->time_since_last_insert[vk];
+         if(delta_seconds > key_down_interval)
+            backspace(buffer);
+      }
+      prev_down[vk] = is_down;
+   }
+
+   if(buffer->cursor != 0)
+   {
+      const usize vk = VK_LEFT;
+      u32 key_state = GetAsyncKeyState(vk);
+      bool is_down = (key_state & 0x8000) != 0;
+      bool was_pressed = is_down && !prev_down[vk];
+
+      if(was_pressed)
+      {
+         buffer->time_since_last_insert[vk] = total_seconds_elapsed;
+         move_backwards(buffer);
+      }
+      else if(is_down)
+      {
+         f64 delta_seconds = total_seconds_elapsed - buffer->time_since_last_insert[vk];
+         if(delta_seconds > key_down_interval)
+            move_backwards(buffer);
+      }
+      prev_down[vk] = is_down;
+   }
+
+   if(buffer->cursor < buffer_size(buffer))
+   {
+      const usize vk = VK_RIGHT;
+      u32 key_state = GetAsyncKeyState(vk);
+      bool is_down = (key_state & 0x8000) != 0;
+      bool was_pressed = is_down && !prev_down[vk];
+
+      if(was_pressed)
+      {
+         buffer->time_since_last_insert[vk] = total_seconds_elapsed;
+         move_forwards(buffer);
+      }
+      else if(is_down)
+      {
+         f64 delta_seconds = total_seconds_elapsed - buffer->time_since_last_insert[vk];
+         if(delta_seconds > key_down_interval)
+            move_forwards(buffer);
+      }
+      prev_down[vk] = is_down;
+   }
+
+   #if 0
+   // TODO: Do the time delta thing for these too
    if(GetAsyncKeyState(VK_RIGHT) & key_state_pressed)
       if(buffer->cursor < buffer_size(buffer))
          move_forwards(buffer);
 
-   if(GetAsyncKeyState(VK_LEFT) & key_state_pressed)
-      if(buffer->cursor != 0)
-         move_backwards(buffer);
-
    if(GetAsyncKeyState(VK_RETURN) & key_state_pressed)
-   {
       insert_newline(buffer);
-   }
-
-   if(GetAsyncKeyState(VK_BACK) & key_state_pressed)
-   {
-      backspace(buffer);
-   }
 
    if(GetAsyncKeyState(VK_SPACE) & key_state_pressed)
-   {
       try_insert_character(buffer, ' ');
-   }
+   #endif
 }
 
 int main()
