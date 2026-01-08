@@ -1151,12 +1151,10 @@ static void set_window_title(HWND handle, const char* message, ...)
 
 function void input_gather(gap_buffer* buffer, f64 total_seconds_elapsed)
 {
-   u32 key_state_down = 0x8000;
-   u32 key_state_pressed = 0x0001;
-
    static bool prev_down[256] = {};
 
    const f64 key_down_interval = 0.16666666667f; // ~167ms - 10 frames of delay in 60 FPS
+   //const f64 key_down_interval = 0.333333333333333f; // ~333ms - 20 frames of delay in 60 FPS
 
    for(int vk = 'A'; vk <= 'Z'; ++vk)
    {
@@ -1177,9 +1175,13 @@ function void input_gather(gap_buffer* buffer, f64 total_seconds_elapsed)
 
       if(was_pressed)
       {
-         buffer->time_since_last_insert[vk] = total_seconds_elapsed;
-         try_insert_character(buffer, (char)ch);
-         printf("Pressed timestamp: %f\n", buffer->time_since_last_insert[vk]);
+         f64 delta_seconds = total_seconds_elapsed - buffer->time_since_last_insert[vk];
+         if(delta_seconds > key_down_interval)
+         {
+            try_insert_character(buffer, (char)ch);
+            buffer->time_since_last_insert[vk] = total_seconds_elapsed;
+            printf("Pressed timestamp: %f\n", buffer->time_since_last_insert[vk]);
+         }
       }
       else if(is_down)
       {
@@ -1202,8 +1204,12 @@ function void input_gather(gap_buffer* buffer, f64 total_seconds_elapsed)
 
       if(was_pressed)
       {
-         buffer->time_since_last_insert[vk] = total_seconds_elapsed;
-         backspace(buffer);
+         f64 delta_seconds = total_seconds_elapsed - buffer->time_since_last_insert[vk];
+         if(delta_seconds > key_down_interval)
+         {
+            backspace(buffer);
+            buffer->time_since_last_insert[vk] = total_seconds_elapsed;
+         }
       }
       else if(is_down)
       {
@@ -1214,6 +1220,7 @@ function void input_gather(gap_buffer* buffer, f64 total_seconds_elapsed)
       prev_down[vk] = is_down;
    }
 
+   {
    if(buffer->cursor != 0)
    {
       const usize vk = VK_LEFT;
@@ -1234,7 +1241,9 @@ function void input_gather(gap_buffer* buffer, f64 total_seconds_elapsed)
       }
       prev_down[vk] = is_down;
    }
+   }
 
+   {
    if(buffer->cursor < buffer_size(buffer))
    {
       const usize vk = VK_RIGHT;
@@ -1254,6 +1263,7 @@ function void input_gather(gap_buffer* buffer, f64 total_seconds_elapsed)
             move_forwards(buffer);
       }
       prev_down[vk] = is_down;
+   }
    }
 
    #if 0
