@@ -1332,8 +1332,8 @@ int main()
    UpdateWindow(window_handle);
    ShowWindow(window_handle, SW_SHOW);
 
-   //HWND console = GetConsoleWindow();
-   //ShowWindow(console, SW_HIDE);
+   HWND console = GetConsoleWindow();
+   ShowWindow(console, SW_HIDE);
 
    s64 begin = clock_query_counter();
    f64 total_seconds_elapsed = 0;
