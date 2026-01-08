@@ -1149,8 +1149,10 @@ static void set_window_title(HWND handle, const char* message, ...)
    va_end(args);
 }
 
-function void input_gather(gap_buffer* buffer, f64 total_seconds_elapsed)
+function bool input_gather(gap_buffer* buffer, f64 total_seconds_elapsed)
 {
+   bool dirty = false;
+
    static bool prev_down[256] = {};
 
    const f64 key_down_interval = 0.16666666667f; // ~167ms - 10 frames of delay in 60 FPS
@@ -1181,6 +1183,7 @@ function void input_gather(gap_buffer* buffer, f64 total_seconds_elapsed)
             try_insert_character(buffer, (char)ch);
             buffer->time_since_last_insert[vk] = total_seconds_elapsed;
             printf("Pressed timestamp: %f\n", buffer->time_since_last_insert[vk]);
+            dirty = true;
          }
       }
       else if(is_down)
@@ -1190,6 +1193,7 @@ function void input_gather(gap_buffer* buffer, f64 total_seconds_elapsed)
          {
             try_insert_character(buffer, (char)ch);
             printf("Is Down timestamp: %f\n", total_seconds_elapsed);
+            dirty = true;
          }
       }
 
@@ -1209,13 +1213,17 @@ function void input_gather(gap_buffer* buffer, f64 total_seconds_elapsed)
          {
             backspace(buffer);
             buffer->time_since_last_insert[vk] = total_seconds_elapsed;
+            dirty = true;
          }
       }
       else if(is_down)
       {
          f64 delta_seconds = total_seconds_elapsed - buffer->time_since_last_insert[vk];
          if(delta_seconds > key_down_interval)
+         {
             backspace(buffer);
+            dirty = true;
+         }
       }
       prev_down[vk] = is_down;
    }
@@ -1278,6 +1286,8 @@ function void input_gather(gap_buffer* buffer, f64 total_seconds_elapsed)
    if(GetAsyncKeyState(VK_SPACE) & key_state_pressed)
       try_insert_character(buffer, ' ');
    #endif
+
+   return dirty;
 }
 
 int main()
@@ -1349,11 +1359,12 @@ int main()
 
       update_scroll_pane_view(&gap_buffer, &global_current_pane);
 
-      input_gather(&gap_buffer, total_seconds_elapsed);
+      bool do_layout = input_gather(&gap_buffer, total_seconds_elapsed);
 
       uint2 window_size = get_editor_window_size(window_handle);
 
-      layout(&gap_buffer, 0, 0, (f32)window_size.x, (f32)window_size.y);
+      if(do_layout)
+         layout(&gap_buffer, 0, 0, (f32)window_size.x, (f32)window_size.y);
 
       global_render_target->BeginDraw();
       global_render_target->Clear(D2D1::ColorF(D2D1::ColorF::LightBlue));
