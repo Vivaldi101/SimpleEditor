@@ -206,9 +206,9 @@ static f64 clock_time_to_counter(f64 time)
    return (f64)global_perf_counter_frequency * time;
 }
 
-static void frame_sync(f64 frame_delta)
+static u32 frame_sync(f64 frame_delta)
 {
-   int num_frames_to_run = 0;
+   u32 num_frames_to_run = 0;
    const s64 counter_delta = (s64)(clock_time_to_counter(frame_delta) + .5f);
 
    for (;;)
@@ -236,6 +236,8 @@ static void frame_sync(f64 frame_delta)
 
       Sleep(0);
    }
+
+   return num_frames_to_run;
 }
 
 function void
@@ -1155,132 +1157,134 @@ function void input_and_layout(gap_buffer* buffer, f64 layout_delta_seconds_elap
    bool do_layout = false;
 
    const f64 key_down_interval = 0.16666666667f; // ~167ms - 10 frames of delay in 60 FPS
-   const f64 layout_interval = 1.f/60; // ~16.7ms TODO: Handle variable frame rates
+   const f64 layout_interval = 1.f / 60; // ~16.7ms TODO: Handle variable frame rates
 
-   buffer->time += layout_delta_seconds_elapsed;
+   static bool prev_down[256] = {};
+   static byte keyboard_state[256] = {};
 
-   // do layout only per interval
-   while(buffer->time >= layout_interval)
+   GetKeyboardState(keyboard_state);
+
+   for(u32 i = 'A'; i < 'Z'; ++i)
    {
-      buffer->time -= layout_interval;
+      bool is_down = (keyboard_state[i] & 0x80) != 0;
+      bool first_press = is_down && !prev_down[i];
 
-      static bool prev_down[256] = {};
-      static byte keyboard_state[256] = {};
+      prev_down[i] = is_down;
 
-      GetKeyboardState(keyboard_state);
+      char c = (char)tolower(i);
 
-      for(u32 i = 'A'; i < 'Z'; ++i)
+      if(first_press)
       {
-         bool is_down = (keyboard_state[i] & 0x80) != 0;
-         bool first_press = is_down && !prev_down[i];
-
-         prev_down[i] = is_down;
-
-         char c = (char)tolower(i);
-
-         if(first_press)
+         try_insert_character(buffer, c);
+         buffer->time_since_last_insert[i] = total_seconds_elapsed;
+         printf("Pressed timestamp: %f\n", buffer->time_since_last_insert[i]);
+         do_layout = true;
+      }
+      else if(is_down)
+      {
+         f64 delta_seconds = total_seconds_elapsed - buffer->time_since_last_insert[i];
+         if(delta_seconds > key_down_interval)
          {
             try_insert_character(buffer, c);
-            buffer->time_since_last_insert[i] = total_seconds_elapsed;
-            printf("Pressed timestamp: %f\n", buffer->time_since_last_insert[i]);
+            printf("Is Down timestamp: %f\n", total_seconds_elapsed);
             do_layout = true;
          }
-         else if(is_down)
+      }
+   }
+   {
+      char c = VK_BACK;
+      bool is_down = (keyboard_state[c] & 0x80) != 0;
+      bool first_press = is_down && !prev_down[c];
+
+      prev_down[c] = is_down;
+
+      if(first_press)
+      {
+         backspace(buffer);
+         buffer->time_since_last_insert[c] = total_seconds_elapsed;
+         do_layout = true;
+      }
+      else if(is_down)
+      {
+         f64 delta_seconds = total_seconds_elapsed - buffer->time_since_last_insert[c];
+         if(delta_seconds > key_down_interval)
          {
-            f64 delta_seconds = total_seconds_elapsed - buffer->time_since_last_insert[i];
-            if(delta_seconds > key_down_interval)
-            {
-               try_insert_character(buffer, c);
-               printf("Is Down timestamp: %f\n", total_seconds_elapsed);
-               do_layout = true;
-            }
+            backspace(buffer);
+            do_layout = true;
          }
       }
-      {
-         char c = VK_BACK;
-         bool is_down = (keyboard_state[c] & 0x80) != 0;
-         bool first_press = is_down && !prev_down[c];
+   }
 
-         prev_down[c] = is_down;
+   #if 0
+   {
+      if(buffer->cursor != 0)
+      {
+         const usize vk = VK_LEFT;
+         u32 key_state = GetAsyncKeyState(vk);
+         bool is_down = (key_state & 0x8000) != 0;
+         bool first_press = is_down && !prev_down[vk];
+
+         prev_down[vk] = is_down;
 
          if(first_press)
          {
-            backspace(buffer);
-            buffer->time_since_last_insert[c] = total_seconds_elapsed;
-            do_layout = true;
+            buffer->time_since_last_insert[vk] = total_seconds_elapsed;
+            move_backwards(buffer);
          }
          else if(is_down)
          {
-            f64 delta_seconds = total_seconds_elapsed - buffer->time_since_last_insert[c];
+            f64 delta_seconds = total_seconds_elapsed - buffer->time_since_last_insert[vk];
             if(delta_seconds > key_down_interval)
-            {
-               backspace(buffer);
-               do_layout = true;
-            }
-         }
-      }
-
-      #if 0
-      {
-         if(buffer->cursor != 0)
-         {
-            const usize vk = VK_LEFT;
-            u32 key_state = GetAsyncKeyState(vk);
-            bool is_down = (key_state & 0x8000) != 0;
-            bool first_press = is_down && !prev_down[vk];
-
-            prev_down[vk] = is_down;
-
-            if(first_press)
-            {
-               buffer->time_since_last_insert[vk] = total_seconds_elapsed;
                move_backwards(buffer);
-            }
-            else if(is_down)
-            {
-               f64 delta_seconds = total_seconds_elapsed - buffer->time_since_last_insert[vk];
-               if(delta_seconds > key_down_interval)
-                  move_backwards(buffer);
-            }
          }
       }
+   }
 
+   {
+      if(buffer->cursor < buffer_size(buffer))
       {
-         if(buffer->cursor < buffer_size(buffer))
+         const usize vk = VK_RIGHT;
+         u32 key_state = GetAsyncKeyState(vk);
+         bool is_down = (key_state & 0x8000) != 0;
+         bool was_pressed = is_down && !prev_down[vk];
+
+         if(was_pressed)
          {
-            const usize vk = VK_RIGHT;
-            u32 key_state = GetAsyncKeyState(vk);
-            bool is_down = (key_state & 0x8000) != 0;
-            bool was_pressed = is_down && !prev_down[vk];
-
-            if(was_pressed)
-            {
-               buffer->time_since_last_insert[vk] = total_seconds_elapsed;
-               move_forwards(buffer);
-            }
-            else if(is_down)
-            {
-               f64 delta_seconds = total_seconds_elapsed - buffer->time_since_last_insert[vk];
-               if(delta_seconds > key_down_interval)
-                  move_forwards(buffer);
-            }
-            prev_down[vk] = is_down;
-         }
-      }
-
-      // TODO: Do the time delta thing for these too
-      if(GetAsyncKeyState(VK_RIGHT) & key_state_pressed)
-         if(buffer->cursor < buffer_size(buffer))
+            buffer->time_since_last_insert[vk] = total_seconds_elapsed;
             move_forwards(buffer);
-      if(GetAsyncKeyState(VK_RETURN) & key_state_pressed)
-         insert_newline(buffer);
+         }
+         else if(is_down)
+         {
+            f64 delta_seconds = total_seconds_elapsed - buffer->time_since_last_insert[vk];
+            if(delta_seconds > key_down_interval)
+               move_forwards(buffer);
+         }
+         prev_down[vk] = is_down;
+      }
+   }
 
-      if(GetAsyncKeyState(VK_SPACE) & key_state_pressed)
-         try_insert_character(buffer, ' ');
-      #endif
+   // TODO: Do the time delta thing for these too
+   if(GetAsyncKeyState(VK_RIGHT) & key_state_pressed)
+      if(buffer->cursor < buffer_size(buffer))
+         move_forwards(buffer);
+   if(GetAsyncKeyState(VK_RETURN) & key_state_pressed)
+      insert_newline(buffer);
 
-      if(do_layout)
-         layout(buffer, 0, 0, (f32)window_size.x, (f32)window_size.y);
+   if(GetAsyncKeyState(VK_SPACE) & key_state_pressed)
+      try_insert_character(buffer, ' ');
+   #endif
+
+
+   //buffer->time += layout_delta_seconds_elapsed;
+
+   {
+      // do layout only per interval
+      //while(buffer->time >= layout_delta_seconds_elapsed)
+      {
+         //buffer->time -= layout_delta_seconds_elapsed;
+         if(do_layout)
+            layout(buffer, 0, 0, (f32)window_size.x, (f32)window_size.y);
+      }
    }
 }
 
@@ -1343,6 +1347,8 @@ int main()
    f64 total_seconds_elapsed = 0;
    f64 seconds_elapsed = 0;
 
+   u32 frames_to_layout_count = 1;
+
    while (!global_quit)
    {
       MSG message;
@@ -1356,14 +1362,15 @@ int main()
 
       uint2 window_size = get_editor_window_size(window_handle);
 
-      input_and_layout(&gap_buffer, seconds_elapsed, total_seconds_elapsed, window_size);
+      for(u32 i = 0; i < frames_to_layout_count; ++i)
+         input_and_layout(&gap_buffer, seconds_elapsed, total_seconds_elapsed, window_size);
 
       global_render_target->BeginDraw();
       global_render_target->Clear(D2D1::ColorF(D2D1::ColorF::LightBlue));
 
       draw(&gap_buffer, 0, 0, (f32)window_size.x, (f32)window_size.y);
 
-      frame_sync(0.01666666666666666666666666666667 / 1);
+      frames_to_layout_count = frame_sync(0.01666666666666666666666666666667 / 1);
 
       s64 end = clock_query_counter();
 
