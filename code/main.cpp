@@ -1347,7 +1347,7 @@ int main()
    f64 total_seconds_elapsed = 0;
    f64 seconds_elapsed = 0;
 
-   u32 frames_to_layout_count = 1;
+   u32 frames_to_layout_count = 0;
 
    while (!global_quit)
    {
